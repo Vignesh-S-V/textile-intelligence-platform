@@ -1,15 +1,15 @@
 from fastapi import FastAPI
 
-from app.api import yarns, raw_material, yarn_ingestion
+from app.api.yarns import router as yarns_router
+from app.api.market_prices import router as market_prices_router
 
 app = FastAPI(
     title="Textile Intelligence Platform",
     version="1.0.0"
 )
 
-app.include_router(yarns.router)
-app.include_router(raw_material.router)
-app.include_router(yarn_ingestion.router)
+app.include_router(yarns_router)
+app.include_router(market_prices_router)
 
 
 @app.get("/")
