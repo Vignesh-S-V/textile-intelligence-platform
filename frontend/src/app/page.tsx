@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 
-// Define the structure of your real database rows
 interface MarketData {
   id: number;
   state: string;
@@ -15,28 +14,36 @@ interface MarketData {
   yarn: string;
   year: string;
   month: string;
-  price: string; // Real exact price from DB
+  price: string; // Exact real historical price from DB
 }
 
 export default function Home() {
-  // Store real data fetched from your database
   const [marketData, setMarketData] = useState<MarketData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // All 10 Filters State
   const [filters, setFilters] = useState({
-    state: '', district: '', fiber: '', yarnType: '', count: '', spinning: '', blend: '', yarn: '', year: '', month: ''
+    state: '', 
+    district: '', 
+    fiber: '', 
+    yarnType: '', 
+    count: '', 
+    spinning: '', 
+    blend: '', 
+    yarn: '', 
+    year: '', 
+    month: ''
   });
 
-  // Fetch Real Data on Component Mount
+  // Fetch Real Database Market Prices on Load
   useEffect(() => {
     const fetchRealData = async () => {
       try {
-        // Ithu unga backend API endpoint (e.g., pulling from SQL views)
         const response = await fetch('/api/market-prices');
         const data = await response.json();
         setMarketData(data);
       } catch (error) {
-        console.error("Error fetching real market prices:", error);
+        console.error("Error fetching market prices:", error);
       } finally {
         setIsLoading(false);
       }
@@ -44,7 +51,7 @@ export default function Home() {
     fetchRealData();
   }, []);
 
-  // Dynamic Options Extractor Function
+  // Dynamic Options Cascading Logic
   const getDynamicOptions = (field: keyof typeof filters) => {
     const matchingData = marketData.filter(item => {
       return Object.entries(filters).every(([key, val]) => {
@@ -78,7 +85,7 @@ export default function Home() {
     });
   };
 
-  // Filtered dataset for output table
+  // Final filtered data for the output table
   const finalFilteredData = marketData.filter(item => {
     return Object.entries(filters).every(([key, val]) => {
       return !val || item[key as keyof typeof item] === val;
@@ -100,10 +107,29 @@ export default function Home() {
 
       <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
         
-        {/* FILTERS BAR */}
+        {/* FILTERS BAR (10 Filters including State & District) */}
         <div style={{ backgroundColor: '#ffffff', padding: '20px', borderRadius: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #cbd5e1', marginBottom: '25px' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '12px' }}>
             
+            {/* State */}
+            <div style={filterBoxStyle}>
+              <label style={labelStyle}>State</label>
+              <select name="state" value={filters.state} onChange={handleFilterChange} style={selectStyle}>
+                <option value="">All States</option>
+                {stateOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+
+            {/* District */}
+            <div style={filterBoxStyle}>
+              <label style={labelStyle}>District</label>
+              <select name="district" value={filters.district} onChange={handleFilterChange} style={selectStyle}>
+                <option value="">All Districts</option>
+                {districtOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+
+            {/* Fiber */}
             <div style={filterBoxStyle}>
               <label style={labelStyle}>Fiber</label>
               <select name="fiber" value={filters.fiber} onChange={handleFilterChange} style={selectStyle}>
@@ -112,6 +138,7 @@ export default function Home() {
               </select>
             </div>
             
+            {/* Yarn Type */}
             <div style={filterBoxStyle}>
               <label style={labelStyle}>Yarn Type</label>
               <select name="yarnType" value={filters.yarnType} onChange={handleFilterChange} style={selectStyle}>
@@ -120,6 +147,7 @@ export default function Home() {
               </select>
             </div>
             
+            {/* Count */}
             <div style={filterBoxStyle}>
               <label style={labelStyle}>Count</label>
               <select name="count" value={filters.count} onChange={handleFilterChange} style={selectStyle}>
@@ -128,14 +156,16 @@ export default function Home() {
               </select>
             </div>
             
+            {/* Spinning */}
             <div style={filterBoxStyle}>
               <label style={labelStyle}>Spinning</label>
               <select name="spinning" value={filters.spinning} onChange={handleFilterChange} style={selectStyle}>
-                <option value="">All Spinning Types</option>
+                <option value="">All Spinning</option>
                 {spinningOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
             
+            {/* Blend */}
             <div style={filterBoxStyle}>
               <label style={labelStyle}>Blend</label>
               <select name="blend" value={filters.blend} onChange={handleFilterChange} style={selectStyle}>
@@ -144,6 +174,7 @@ export default function Home() {
               </select>
             </div>
             
+            {/* Yarn Name */}
             <div style={filterBoxStyle}>
               <label style={labelStyle}>Yarn Name</label>
               <select name="yarn" value={filters.yarn} onChange={handleFilterChange} style={selectStyle}>
@@ -152,7 +183,8 @@ export default function Home() {
               </select>
             </div>
 
-            <div style={{ flex: '1 1 100px', minWidth: '100px' }}>
+            {/* Year */}
+            <div style={{ flex: '1 1 95px', minWidth: '95px' }}>
               <label style={labelStyle}>Year</label>
               <select name="year" value={filters.year} onChange={handleFilterChange} style={selectStyle}>
                 <option value="">All Years</option>
@@ -160,7 +192,8 @@ export default function Home() {
               </select>
             </div>
 
-            <div style={{ flex: '1 1 100px', minWidth: '100px' }}>
+            {/* Month */}
+            <div style={{ flex: '1 1 95px', minWidth: '95px' }}>
               <label style={labelStyle}>Month</label>
               <select name="month" value={filters.month} onChange={handleFilterChange} style={selectStyle}>
                 <option value="">All Months</option>
@@ -168,6 +201,7 @@ export default function Home() {
               </select>
             </div>
 
+            {/* Clear Button */}
             <div style={{ marginLeft: 'auto' }}>
               <button onClick={clearAllFilters} style={{ backgroundColor: '#ef4444', color: '#ffffff', border: 'none', padding: '8px 18px', borderRadius: '6px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', height: '36px' }}>
                 Clear All
@@ -184,12 +218,14 @@ export default function Home() {
           </h2>
           
           {isLoading ? (
-            <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>Loading exact market prices from database...</div>
+            <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>Loading exact database records...</div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                 <thead>
                   <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                    <th style={thStyle}>State</th>
+                    <th style={thStyle}>District</th>
                     <th style={thStyle}>Fiber</th>
                     <th style={thStyle}>Yarn Name</th>
                     <th style={thStyle}>Count</th>
@@ -202,19 +238,21 @@ export default function Home() {
                 <tbody>
                   {finalFilteredData.length > 0 ? (
                     finalFilteredData.map((row) => (
-                      <tr key={row.id} style={{ borderBottom: '1px solid #e2e8f0', transition: 'background-color 0.2s' }}>
+                      <tr key={row.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                        <td style={tdStyle}>{row.state}</td>
+                        <td style={tdStyle}>{row.district}</td>
                         <td style={tdStyle}><strong>{row.fiber}</strong></td>
                         <td style={tdStyle}>{row.yarn}</td>
                         <td style={tdStyle}>{row.count}</td>
                         <td style={tdStyle}>{row.blend}</td>
                         <td style={tdStyle}>{row.year}</td>
                         <td style={tdStyle}>{row.month}</td>
-                        <td style={{ ...tdStyle, fontWeight: '700', color: '#16a34a', fontSize: '15px' }}>{row.price}</td>
+                        <td style={{ ...tdStyle, fontWeight: '700', color: '#16a34a', fontSize: '14px' }}>{row.price}</td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={7} style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontSize: '15px' }}>
+                      <td colSpan={9} style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontSize: '15px' }}>
                         No records match the exact filter combination.
                       </td>
                     </tr>
@@ -230,8 +268,8 @@ export default function Home() {
   );
 }
 
-const filterBoxStyle: React.CSSProperties = { flex: '1 1 125px', minWidth: '125px' };
+const filterBoxStyle: React.CSSProperties = { flex: '1 1 115px', minWidth: '115px' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: '11px', fontWeight: '700', color: '#334155', marginBottom: '5px', textTransform: 'uppercase' };
-const selectStyle: React.CSSProperties = { width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #94a3b8', fontSize: '13px', backgroundColor: '#ffffff', color: '#0f172a', cursor: 'pointer' };
+const selectStyle: React.CSSProperties = { width: '100%', padding: '8px 8px', borderRadius: '6px', border: '1px solid #94a3b8', fontSize: '12px', backgroundColor: '#ffffff', color: '#0f172a', cursor: 'pointer' };
 const thStyle: React.CSSProperties = { padding: '12px 10px', color: '#475569', fontWeight: '700', textTransform: 'uppercase', fontSize: '12px' };
 const tdStyle: React.CSSProperties = { padding: '12px 10px', color: '#0f172a' };
