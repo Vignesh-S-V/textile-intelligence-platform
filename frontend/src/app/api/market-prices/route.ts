@@ -1,28 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Proxies to the real backend (FastAPI + Postgres), which only returns
-// records that actually exist in the database. This route must never
-// invent, guess, or default any field itself.
 const BACKEND_URL = process.env.BACKEND_API_URL;
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   if (!BACKEND_URL) {
     return NextResponse.json(
-      { error: 'BACKEND_API_URL is not configured.', results: [], total: 0 },
+      {
+        error: 'BACKEND_API_URL is not configured.',
+        states: [], districts: [], fibers: [], counts: [],
+        spinning_types: [], blends: [], yarns: [], markets: [],
+        years: [], months: [],
+      },
       { status: 503 }
     );
   }
 
-  const search = request.nextUrl.search;
-
   try {
-    const upstream = await fetch(`${BACKEND_URL}/api/market-prices${search}`, {
+    const upstream = await fetch(`${BACKEND_URL}/api/filter-metadata`, {
       next: { revalidate: 60 },
     });
 
     if (!upstream.ok) {
       return NextResponse.json(
-        { error: `Backend returned ${upstream.status}`, results: [], total: 0 },
+        { error: `Backend returned ${upstream.status}` },
         { status: 502 }
       );
     }
@@ -30,9 +30,9 @@ export async function GET(request: NextRequest) {
     const data = await upstream.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error('market-prices proxy error:', error);
+    console.error('filter-metadata proxy error:', error);
     return NextResponse.json(
-      { error: 'Backend unavailable.', results: [], total: 0 },
+      { error: 'Backend unavailable.' },
       { status: 502 }
     );
   }
