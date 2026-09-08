@@ -1,9 +1,9 @@
-"use client"; // Next.js-la interactive filters use panna idhu mukkiyam
+"use client";
 
 import React, { useState } from 'react';
 
 export default function Home() {
-  // Filters-kanda State management
+  // Filter States
   const [filters, setFilters] = useState({
     state: '',
     district: '',
@@ -12,42 +12,48 @@ export default function Home() {
     month: ''
   });
 
-  // Oru filter maathumbodhu matha filters pogaama irukka intha function
+  // Handle Dropdown Change (retains existing filters)
   const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
   };
 
-  // Ellaa filters-um reset panna
+  // Reset All Filters
   const clearAllFilters = () => {
     setFilters({ state: '', district: '', yarn: '', year: '', month: '' });
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans">
+    <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', backgroundColor: '#f8fafc', minHeight: '100vh', padding: '20px', color: '#0f172a' }}>
       
-      {/* HEADER SECTION (Top Center) */}
-      <header className="bg-white shadow-sm py-6 border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 text-center">
-          <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">
-            TEXTILE INTELLIGENCE PLATFORM
-          </h1>
-          <p className="mt-2 text-sm text-gray-500 uppercase tracking-widest font-semibold">
-            Real-time Yarn • Loom • Fabric • Market Intelligence
-          </p>
-        </div>
-      </header>
+      {/* 1. HEADER SECTION (Dead Center) */}
+      <div style={{ textAlign: 'center', marginBottom: '25px', paddingTop: '10px', paddingBottom: '20px', borderBottom: '2px solid #e2e8f0' }}>
+        <h1 style={{ fontSize: '32px', fontWeight: '800', color: '#0f172a', margin: '0 0 8px 0', letterSpacing: '0.5px' }}>
+          TEXTILE INTELLIGENCE PLATFORM
+        </h1>
+        <p style={{ fontSize: '13px', color: '#64748b', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '1.5px', margin: 0 }}>
+          Real-time Yarn • Loom • Fabric • Market Intelligence
+        </p>
+      </div>
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         
-        {/* FILTERS SECTION */}
-        <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 mb-8">
-          <div className="flex flex-wrap items-end gap-4">
+        {/* 2. FILTERS BAR (Side-by-Side Horizontal Row) */}
+        <div style={{ backgroundColor: '#ffffff', padding: '20px', borderRadius: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #cbd5e1', marginBottom: '25px' }}>
+          
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '15px' }}>
             
             {/* State Filter */}
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-1">State</label>
-              <select name="state" value={filters.state} onChange={handleFilterChange} className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+            <div style={{ flex: '1', minWidth: '150px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px', textTransform: 'uppercase' }}>
+                State
+              </label>
+              <select 
+                name="state" 
+                value={filters.state} 
+                onChange={handleFilterChange} 
+                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #94a3b8', fontSize: '14px', backgroundColor: '#ffffff', color: '#0f172a', cursor: 'pointer' }}
+              >
                 <option value="">All States</option>
                 <option value="Tamil Nadu">Tamil Nadu</option>
                 <option value="Gujarat">Gujarat</option>
@@ -56,9 +62,16 @@ export default function Home() {
             </div>
 
             {/* District Filter */}
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-1">District</label>
-              <select name="district" value={filters.district} onChange={handleFilterChange} className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+            <div style={{ flex: '1', minWidth: '150px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px', textTransform: 'uppercase' }}>
+                District
+              </label>
+              <select 
+                name="district" 
+                value={filters.district} 
+                onChange={handleFilterChange} 
+                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #94a3b8', fontSize: '14px', backgroundColor: '#ffffff', color: '#0f172a', cursor: 'pointer' }}
+              >
                 <option value="">All Districts</option>
                 <option value="Tiruppur">Tiruppur</option>
                 <option value="Coimbatore">Coimbatore</option>
@@ -68,9 +81,16 @@ export default function Home() {
             </div>
 
             {/* Yarn Name Filter */}
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Yarn Name</label>
-              <select name="yarn" value={filters.yarn} onChange={handleFilterChange} className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+            <div style={{ flex: '1', minWidth: '150px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px', textTransform: 'uppercase' }}>
+                Yarn Name
+              </label>
+              <select 
+                name="yarn" 
+                value={filters.yarn} 
+                onChange={handleFilterChange} 
+                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #94a3b8', fontSize: '14px', backgroundColor: '#ffffff', color: '#0f172a', cursor: 'pointer' }}
+              >
                 <option value="">All Yarns</option>
                 <option value="Cotton 30s">Cotton 30s</option>
                 <option value="Cotton 40s">Cotton 40s</option>
@@ -80,9 +100,16 @@ export default function Home() {
             </div>
 
             {/* Year Filter */}
-            <div className="flex-1 min-w-[120px]">
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Year</label>
-              <select name="year" value={filters.year} onChange={handleFilterChange} className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+            <div style={{ flex: '1', minWidth: '120px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px', textTransform: 'uppercase' }}>
+                Year
+              </label>
+              <select 
+                name="year" 
+                value={filters.year} 
+                onChange={handleFilterChange} 
+                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #94a3b8', fontSize: '14px', backgroundColor: '#ffffff', color: '#0f172a', cursor: 'pointer' }}
+              >
                 <option value="">All Years</option>
                 <option value="2024">2024</option>
                 <option value="2025">2025</option>
@@ -91,9 +118,16 @@ export default function Home() {
             </div>
 
             {/* Month Filter */}
-            <div className="flex-1 min-w-[120px]">
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Month</label>
-              <select name="month" value={filters.month} onChange={handleFilterChange} className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+            <div style={{ flex: '1', minWidth: '120px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px', textTransform: 'uppercase' }}>
+                Month
+              </label>
+              <select 
+                name="month" 
+                value={filters.month} 
+                onChange={handleFilterChange} 
+                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #94a3b8', fontSize: '14px', backgroundColor: '#ffffff', color: '#0f172a', cursor: 'pointer' }}
+              >
                 <option value="">All Months</option>
                 <option value="Jan">January</option>
                 <option value="Feb">February</option>
@@ -106,7 +140,7 @@ export default function Home() {
             <div>
               <button 
                 onClick={clearAllFilters} 
-                className="bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 font-bold py-2 px-4 rounded text-sm transition-colors duration-200"
+                style={{ backgroundColor: '#ef4444', color: '#ffffff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', height: '40px' }}
               >
                 Clear All
               </button>
@@ -115,36 +149,38 @@ export default function Home() {
           </div>
         </div>
 
-        {/* DYNAMIC SHEET / DATA SECTION */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 min-h-[400px]">
-          <h2 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Market Data Overview</h2>
+        {/* 3. DYNAMIC SHEET AREA */}
+        <div style={{ backgroundColor: '#ffffff', padding: '24px', borderRadius: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #cbd5e1', minHeight: '350px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#0f172a', marginTop: 0, marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
+            Market Data Overview
+          </h2>
           
-          <div className="bg-blue-50 p-4 rounded border border-blue-100 mb-6">
-            <h3 className="text-sm font-bold text-blue-800 uppercase mb-2">Current Applied Filters:</h3>
-            <div className="flex flex-wrap gap-2">
+          {/* Active Applied Filters Badge */}
+          <div style={{ backgroundColor: '#eff6ff', padding: '14px', borderRadius: '8px', border: '1px solid #bfdbfe', marginBottom: '20px' }}>
+            <div style={{ fontSize: '12px', fontWeight: '700', color: '#1d4ed8', textTransform: 'uppercase', marginBottom: '8px' }}>
+              Current Active Filters:
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {Object.entries(filters).map(([key, value]) => (
                 value ? (
-                  <span key={key} className="bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide">
+                  <span key={key} style={{ backgroundColor: '#2563eb', color: '#ffffff', fontSize: '12px', fontWeight: '700', padding: '4px 12px', borderRadius: '16px', textTransform: 'uppercase' }}>
                     {key}: {value}
                   </span>
                 ) : null
               ))}
               {Object.values(filters).every(val => val === '') && (
-                <span className="text-sm text-gray-500 italic">No filters applied. Showing all data.</span>
+                <span style={{ fontSize: '14px', color: '#64748b', fontStyle: 'italic' }}>No filters applied. Showing all data.</span>
               )}
             </div>
           </div>
 
-          {/* Placeholder for table/charts */}
-          <div className="flex items-center justify-center h-48 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50">
-            <p className="text-gray-400 text-center">
-              Data Sheet will be loaded here based on the selected filters.<br/>
-              (Connect your PowerBI/Database here later)
-            </p>
+          {/* Placeholder for Data Sheet / Table */}
+          <div style={{ border: '2px dashed #cbd5e1', borderRadius: '8px', padding: '50px 20px', textAlign: 'center', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '15px' }}>
+            Interactive Sheet/Table will load here based on selected filters.
           </div>
         </div>
 
-      </main>
+      </div>
     </div>
   );
 }
