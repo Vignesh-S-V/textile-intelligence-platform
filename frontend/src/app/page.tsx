@@ -14,14 +14,13 @@ interface MarketData {
   yarn: string;
   year: string;
   month: string;
-  price: string; // Exact real historical price from DB
+  price: string;
 }
 
 export default function Home() {
   const [marketData, setMarketData] = useState<MarketData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // All 10 Filters State
   const [filters, setFilters] = useState({
     state: '', 
     district: '', 
@@ -35,13 +34,14 @@ export default function Home() {
     month: ''
   });
 
-  // Fetch Real Database Market Prices on Load
   useEffect(() => {
     const fetchRealData = async () => {
       try {
         const response = await fetch('/api/market-prices');
         const data = await response.json();
-        setMarketData(data);
+        if (Array.isArray(data)) {
+          setMarketData(data);
+        }
       } catch (error) {
         console.error("Error fetching market prices:", error);
       } finally {
@@ -51,8 +51,10 @@ export default function Home() {
     fetchRealData();
   }, []);
 
-  // Dynamic Options Cascading Logic
+  // Safe Dynamic Options Cascading Logic
   const getDynamicOptions = (field: keyof typeof filters) => {
+    if (!marketData || marketData.length === 0) return [];
+    
     const matchingData = marketData.filter(item => {
       return Object.entries(filters).every(([key, val]) => {
         if (key === field || !val) return true; 
@@ -85,7 +87,6 @@ export default function Home() {
     });
   };
 
-  // Final filtered data for the output table
   const finalFilteredData = marketData.filter(item => {
     return Object.entries(filters).every(([key, val]) => {
       return !val || item[key as keyof typeof item] === val;
@@ -95,7 +96,6 @@ export default function Home() {
   return (
     <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', backgroundColor: '#f8fafc', minHeight: '100vh', padding: '20px', color: '#0f172a' }}>
       
-      {/* HEADER SECTION */}
       <div style={{ textAlign: 'center', marginBottom: '25px', paddingTop: '10px', paddingBottom: '20px', borderBottom: '2px solid #e2e8f0' }}>
         <h1 style={{ fontSize: '30px', fontWeight: '800', color: '#0f172a', margin: '0 0 8px 0', letterSpacing: '0.5px' }}>
           TEXTILE INTELLIGENCE PLATFORM
@@ -107,101 +107,89 @@ export default function Home() {
 
       <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
         
-        {/* FILTERS BAR (10 Filters including State & District) */}
         <div style={{ backgroundColor: '#ffffff', padding: '20px', borderRadius: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #cbd5e1', marginBottom: '25px' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '12px' }}>
             
-            {/* State */}
             <div style={filterBoxStyle}>
-              <label style={labelStyle}>State</label>
+              <label style={labelStyle}>State ({stateOptions.length})</label>
               <select name="state" value={filters.state} onChange={handleFilterChange} style={selectStyle}>
                 <option value="">All States</option>
                 {stateOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
 
-            {/* District */}
             <div style={filterBoxStyle}>
-              <label style={labelStyle}>District</label>
+              <label style={labelStyle}>District ({districtOptions.length})</label>
               <select name="district" value={filters.district} onChange={handleFilterChange} style={selectStyle}>
                 <option value="">All Districts</option>
                 {districtOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
 
-            {/* Fiber */}
             <div style={filterBoxStyle}>
-              <label style={labelStyle}>Fiber</label>
+              <label style={labelStyle}>Fiber ({fiberOptions.length})</label>
               <select name="fiber" value={filters.fiber} onChange={handleFilterChange} style={selectStyle}>
                 <option value="">All Fibers</option>
                 {fiberOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
             
-            {/* Yarn Type */}
             <div style={filterBoxStyle}>
-              <label style={labelStyle}>Yarn Type</label>
+              <label style={labelStyle}>Yarn Type ({yarnTypeOptions.length})</label>
               <select name="yarnType" value={filters.yarnType} onChange={handleFilterChange} style={selectStyle}>
                 <option value="">All Yarn Types</option>
                 {yarnTypeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
             
-            {/* Count */}
             <div style={filterBoxStyle}>
-              <label style={labelStyle}>Count</label>
+              <label style={labelStyle}>Count ({countOptions.length})</label>
               <select name="count" value={filters.count} onChange={handleFilterChange} style={selectStyle}>
                 <option value="">All Counts</option>
                 {countOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
             
-            {/* Spinning */}
             <div style={filterBoxStyle}>
-              <label style={labelStyle}>Spinning</label>
+              <label style={labelStyle}>Spinning ({spinningOptions.length})</label>
               <select name="spinning" value={filters.spinning} onChange={handleFilterChange} style={selectStyle}>
                 <option value="">All Spinning</option>
                 {spinningOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
             
-            {/* Blend */}
             <div style={filterBoxStyle}>
-              <label style={labelStyle}>Blend</label>
+              <label style={labelStyle}>Blend ({blendOptions.length})</label>
               <select name="blend" value={filters.blend} onChange={handleFilterChange} style={selectStyle}>
                 <option value="">All Blends</option>
                 {blendOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
             
-            {/* Yarn Name */}
             <div style={filterBoxStyle}>
-              <label style={labelStyle}>Yarn Name</label>
+              <label style={labelStyle}>Yarn Name ({yarnOptions.length})</label>
               <select name="yarn" value={filters.yarn} onChange={handleFilterChange} style={selectStyle}>
                 <option value="">All Yarns</option>
                 {yarnOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
 
-            {/* Year */}
             <div style={{ flex: '1 1 95px', minWidth: '95px' }}>
-              <label style={labelStyle}>Year</label>
+              <label style={labelStyle}>Year ({yearOptions.length})</label>
               <select name="year" value={filters.year} onChange={handleFilterChange} style={selectStyle}>
                 <option value="">All Years</option>
                 {yearOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
 
-            {/* Month */}
             <div style={{ flex: '1 1 95px', minWidth: '95px' }}>
-              <label style={labelStyle}>Month</label>
+              <label style={labelStyle}>Month ({monthOptions.length})</label>
               <select name="month" value={filters.month} onChange={handleFilterChange} style={selectStyle}>
                 <option value="">All Months</option>
                 {monthOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
 
-            {/* Clear Button */}
             <div style={{ marginLeft: 'auto' }}>
               <button onClick={clearAllFilters} style={{ backgroundColor: '#ef4444', color: '#ffffff', border: 'none', padding: '8px 18px', borderRadius: '6px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', height: '36px' }}>
                 Clear All
@@ -211,7 +199,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* ACTIVE DATA SHEET */}
         <div style={{ backgroundColor: '#ffffff', padding: '24px', borderRadius: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #cbd5e1' }}>
           <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', margin: '0 0 16px 0', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
             Historical Market Data ({finalFilteredData.length} Records)
