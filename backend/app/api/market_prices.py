@@ -9,6 +9,9 @@ from app.models.schema import YarnPrice, YarnMaster, DataSource
 
 router = APIRouter()
 
+# Only these verification statuses are returned to the public dashboard.
+PUBLIC_STATUSES = ("VERIFIED", "PARTIALLY_VERIFIED")
+
 
 @router.get("/api/market-prices")
 def list_market_prices(
@@ -18,19 +21,34 @@ def list_market_prices(
     fiber: Optional[str] = None,
     state: Optional[str] = None,
     district: Optional[str] = None,
+    market: Optional[str] = None,
     count: Optional[str] = None,
     blend: Optional[str] = None,
+    spinning_type: Optional[str] = None,
+    yarn_name: Optional[str] = None,
     source_name: Optional[str] = None,
     verification_status: Optional[str] = None,
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
+    year: Optional[int] = None,
+    month: Optional[int] = None,
 ):
     """
-    Returns only records that actually exist in the database. Never
-    fabricates rows. If nothing matches, returns an empty list — the
-    frontend is responsible for showing "No verified data available".
+    Returns only VERIFIED/PARTIALLY_VERIFIED records that actually exist in
+    the database. Never fabricates rows. Empty list → frontend shows
+    'No verified data available'.
     """
-    q = db.query(YarnPrice).join(YarnMaster).join(DataSource)
+    from sqlalchemy import extract
+
+    q = (
+        db.query(YarnPrice)
+        .join(YarnMaster)
+        .join(DataSource)
+        .filter(YarnPrice.verification_status.in_(PUBLIC_STATUSES))
+    )
+
+    if verification_status and verification_status in PUBLIC_STATUSES:
+        q = q.filter(YarnPrice.verification_status == verification_status)
 
     if fiber:
         q = q.filter(YarnMaster.fiber_type == fiber)
@@ -38,16 +56,26 @@ def list_market_prices(
         q = q.filter(YarnPrice.state == state)
     if district:
         q = q.filter(YarnPrice.district == district)
+    if market:
+        q = q.filter(YarnPrice.market == market)
     if count:
         q = q.filter(YarnMaster.count == count)
+    if blend:
+        q = q.filter(YarnMaster.blend == blend)
+    if spinning_type:
+        q = q.filter(YarnMaster.spinning_type == spinning_type)
+    if yarn_name:
+        q = q.filter(YarnMaster.yarn_name == yarn_name)
     if source_name:
         q = q.filter(DataSource.source_name == source_name)
-    if verification_status:
-        q = q.filter(YarnPrice.verification_status == verification_status)
     if date_from:
         q = q.filter(YarnPrice.effective_date >= date_from)
     if date_to:
         q = q.filter(YarnPrice.effective_date <= date_to)
+    if year:
+        q = q.filter(extract("year", YarnPrice.effective_date) == year)
+    if month:
+        q = q.filter(extract("month", YarnPrice.effective_date) == month)
 
     total = q.count()
     rows = (
