@@ -1,34 +1,66 @@
-import { NextRequest, NextResponse } from 'next/server';
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from sqlalchemy import distinct, extract
 
-const BACKEND_URL = process.env.BACKEND_API_URL;
+from app.core.database import get_db
+from app.models.schema import YarnPrice, YarnMaster
 
-const EMPTY = {
-  states: [], districts: [], fibers: [], counts: [],
-  spinning_types: [], blends: [], yarns: [], markets: [],
-  years: [], months: [],
-};
+router = APIRouter()
 
-export async function GET(_request: NextRequest) {
-  // If backend URL not configured, return empty meta (not an error)
-  // so the frontend shows the "no data yet" message instead of an error banner.
-  if (!BACKEND_URL) {
-    return NextResponse.json(EMPTY);
-  }
+VERIFIED_STATUSES = ("VERIFIED", "PARTIALLY_VERIFIED")
 
-  try {
-    const upstream = await fetch(`${BACKEND_URL}/api/filter-metadata`, {
-      next: { revalidate: 60 },
-    });
 
-    if (!upstream.ok) {
-      // Backend reachable but returned an error — return empty silently
-      return NextResponse.json(EMPTY);
+@router.get("/api/filter-metadata")
+def get_filter_metadata(db: Session = Depends(get_db)):
+    base = (
+        db.query(YarnPrice)
+        .join(YarnMaster)
+        .filter(YarnPrice.verification_status.in_(VERIFIED_STATUSES))
+    )
+
+    def distinct_non_null(col):
+        return sorted(
+            v for (v,) in base.with_entities(distinct(col)).all() if v is not None
+        )
+
+    states    = distinct_non_null(YarnPrice.state)
+    districts = distinct_non_null(YarnPrice.district)
+    fibers    = distinct_non_null(YarnMaster.fiber_type)
+    counts    = distinct_non_null(YarnMaster.count)
+    spinning  = distinct_non_null(YarnMaster.spinning_type)
+    blends    = distinct_non_null(YarnMaster.blend)
+    yarns     = distinct_non_null(YarnMaster.yarn_name)
+    markets   = distinct_non_null(YarnPrice.market)
+
+    years = sorted(
+        {
+            int(y)
+            for (y,) in base.with_entities(
+                extract("year", YarnPrice.effective_date)
+            ).all()
+            if y is not None
+        },
+        reverse=True,
+    )
+    months = sorted(
+        {
+            int(m)
+            for (m,) in base.with_entities(
+                extract("month", YarnPrice.effective_date)
+            ).all()
+            if m is not None
+        }
+    )
+
+    return {
+        "states": states,
+        "districts": districts,
+        "fibers": fibers,
+        "counts": counts,
+        "spinning_types": spinning,
+        "blends": blends,
+        "yarns": yarns,
+        "markets": markets,
+        "years": years,
+        "months": months,
     }
-
-    const data = await upstream.json();
-    return NextResponse.json(data);
-  } catch {
-    // Backend not reachable — return empty silently so UI shows "no data" not error
-    return NextResponse.json(EMPTY);
-  }
-}
