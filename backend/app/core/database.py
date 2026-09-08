@@ -9,7 +9,24 @@ if not DATABASE_URL:
         "string via environment variable — never hardcode credentials."
     )
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+# Supabase/Supavisor connection strings may use postgres:// scheme;
+# SQLAlchemy 2.x requires postgresql://
+_url = DATABASE_URL
+if _url.startswith("postgres://"):
+    _url = _url.replace("postgres://", "postgresql://", 1)
+
+# For Supabase pooler (port 6543) SSL is required; for direct (port 5432) it
+# may be optional. We honour whatever is already in the URL and add
+# sslmode=require only when it is not already present.
+_connect_args: dict = {}
+if "sslmode" not in _url and "supabase" in _url:
+    _connect_args["sslmode"] = "require"
+
+engine = create_engine(
+    _url,
+    pool_pre_ping=True,
+    connect_args=_connect_args,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
