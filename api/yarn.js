@@ -1,151 +1,111 @@
-// Official yarn/fibre price ingestion for Textile Intelligence Platform.
-// TXC provides the long historical series; NTC provides the post-March-2025 official yarn price lists.
 const MIN_DATE='2021-01-01';
 const NTC_FROM='2025-04-01';
-const HISTORICAL_URL='https://www.txcindia.gov.in/html/ecomicsection/Cotton%20Yarn%20Prices.pdf';
-const WEEKLY_URLS=[
-  {url:'https://txcindia.gov.in/html/pricessheet3.pdf',sheet:'Cotton Yarn'},
-  {url:'https://txcindia.gov.in/html/pricessheet4.pdf',sheet:'Man Made Fibres'},
-  {url:'https://txcindia.gov.in/html/pricessheet5.pdf',sheet:'Blended Yarn & Viscose Spun Yarn'},
-  {url:'https://txcindia.gov.in/html/pricessheet6.pdf',sheet:'Man Made Filament Yarns'},
-  {url:'https://txcindia.gov.in/html/pricessheet7.pdf',sheet:'Wool/Woollen Yarn'}
+const TXC_HIST='https://www.txcindia.gov.in/html/ecomicsection/Cotton%20Yarn%20Prices.pdf';
+const TXC_SHEETS=[
+  ['https://txcindia.gov.in/html/pricessheet3.pdf','Cotton Yarn'],
+  ['https://txcindia.gov.in/html/pricessheet4.pdf','Man Made Fibres'],
+  ['https://txcindia.gov.in/html/pricessheet5.pdf','Blended Yarn & Viscose Spun Yarn'],
+  ['https://txcindia.gov.in/html/pricessheet6.pdf','Man Made Filament Yarns'],
+  ['https://txcindia.gov.in/html/pricessheet7.pdf','Wool/Woollen Yarn']
 ];
 const NTC_ARCHIVES=[
-  {url:'https://www.ntcltd.org/WRO_oldRecords.aspx',region:'Western Region'},
-  {url:'https://www.ntcltd.org/SRO_oldRecords.aspx',region:'Southern Region'}
+  ['https://www.ntcltd.org/WRO_oldRecords.aspx','Western Region'],
+  ['https://www.ntcltd.org/SRO_oldRecords.aspx','Southern Region']
 ];
-const CENTRES={Coimbatore:{state:'Tamil Nadu',district:'Coimbatore'},Amritsar:{state:'Punjab',district:'Amritsar'},Ahmedabad:{state:'Gujarat',district:'Ahmedabad'}};
-const MONTHS={Jan:0,January:0,Feb:1,February:1,Mar:2,March:2,Apr:3,April:3,May:4,Jun:5,June:5,Jul:6,July:6,Aug:7,August:7,Sep:8,September:8,Oct:9,October:9,Nov:10,November:10,Dec:11,December:11};
+const CENTRES={Coimbatore:['Tamil Nadu','Coimbatore'],Amritsar:['Punjab','Amritsar'],Ahmedabad:['Gujarat','Ahmedabad']};
+const MONTH={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
 const clean=s=>String(s??'').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
-const num=s=>{if(s==null||s===''||s==='-'||/^N\.?A\.?$/i.test(String(s)))return null;const n=Number(String(s).replace(/,/g,''));return Number.isFinite(n)?n:null};
-function dmy(s){const m=String(s).match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);if(!m)return null;const d=new Date(Date.UTC(+m[3],+m[2]-1,+m[1]));return Number.isNaN(d.getTime())?null:d}
+const num=s=>{const n=Number(String(s??'').replace(/,/g,''));return Number.isFinite(n)?n:null};
+function dateDMY(s){const m=String(s).match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);if(!m)return null;const d=new Date(Date.UTC(+m[3],+m[2]-1,+m[1]));return Number.isNaN(d.getTime())?null:d}
 function iso(d){return d.toISOString().slice(0,10)}
-function monthToken(s){const m=String(s).match(/^(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)-(\d{2})$/i);if(!m)return null;const k=Object.keys(MONTHS).find(x=>x.toLowerCase()===m[1].toLowerCase());return new Date(Date.UTC(2000+ +m[2],MONTHS[k],1))}
-
-// pdf-parse's default text extraction can put table cells on separate lines.
-// Rebuild each PDF row from text coordinates so the official tables are actually parseable.
-async function pdfText(url){
-  const r=await fetch(url,{headers:{'User-Agent':'Textile-Intelligence-Platform/7.0','Accept':'application/pdf,*/*'},redirect:'follow',signal:AbortSignal.timeout(20000)});
+function monthDate(s){const m=String(s).match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember|ember)?-(\d{2})$/i);if(!m)return null;const k=m[1][0].toUpperCase()+m[1].slice(1).toLowerCase();return new Date(Date.UTC(2000+Number(m[2]),MONTH[k],1))}
+async function getPdfText(url){
+  const r=await fetch(url,{headers:{'User-Agent':'Textile-Intelligence-Platform/8.0','Accept':'application/pdf,*/*'},redirect:'follow',signal:AbortSignal.timeout(18000)});
   if(!r.ok)throw new Error(`HTTP ${r.status}`);
   const b=Buffer.from(await r.arrayBuffer());
   const pdfParse=(await import('pdf-parse')).default;
-  const pagerender=pageData=>pageData.getTextContent({normalizeWhitespace:true,disableCombineTextItems:false}).then(tc=>{
-    const rows=[];
-    for(const item of tc.items){
-      const y=Math.round(item.transform?.[5]||0),x=Number(item.transform?.[4]||0);
-      let row=rows.find(v=>Math.abs(v.y-y)<=1);
-      if(!row){row={y,items:[]};rows.push(row)}
-      row.items.push({x,s:clean(item.str)});
-    }
-    return rows.sort((a,b)=>b.y-a.y).map(row=>row.items.sort((a,b)=>a.x-b.x).map(v=>v.s).filter(Boolean).join(' ')).join('\n');
-  });
-  return (await pdfParse(b,{pagerender})).text||'';
+  const parsed=await pdfParse(b);
+  return parsed.text||'';
 }
-
 function historical(text){
   const lines=text.split(/\r?\n/).map(clean).filter(Boolean),out=[];let section='',centre='';
   for(const line of lines){
-    if(/Annexure-I/i.test(line))section='Cone Combed';
-    if(/Annexure-II/i.test(line))section='Hosiery Combed';
-    const cm=line.match(/Centre[- ]?wise details:\s*([A-Za-z ]+)/i);
-    if(cm){const n=cm[1].trim();centre=Object.keys(CENTRES).find(k=>n.toLowerCase().startsWith(k.toLowerCase()))||'';continue}
-    const mt=line.match(/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)-\d{2}\b/i);if(!mt||!centre||!section)continue;
-    const dt=monthToken(mt[0]);if(!dt||iso(dt)<MIN_DATE)continue;
+    if(/Annexure-I\b/i.test(line))section='Cone Combed';
+    if(/Annexure-II\b/i.test(line))section='Hosiery Combed';
+    const cm=line.match(/Centre[- ]*wise details:\s*([A-Za-z ]+)/i);
+    if(cm){centre=Object.keys(CENTRES).find(k=>cm[1].toLowerCase().includes(k.toLowerCase()))||centre;}
+    if(!centre||!section)continue;
+    const mt=line.match(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember|ember)?-\d{2}\b/i);if(!mt)continue;
+    const dt=monthDate(mt[0]);if(!dt||iso(dt)<MIN_DATE)continue;
     const counts=section==='Cone Combed'&&centre==='Amritsar'?['20s','30s','40s']:section==='Cone Combed'?['20s','30s','40s','60s','80s']:['20s','30s','40s'];
-    // Official yarn prices are the large Rs/Kg numbers in the row; growth percentages are much smaller.
-    const nums=(line.slice((mt.index||0)+mt[0].length).match(/\b\d+(?:\.\d+)?\b/g)||[]).map(Number).filter(n=>n>120&&n<2000);
-    for(let i=0;i<Math.min(counts.length,nums.length);i++)out.push({date:iso(dt),year:dt.getUTCFullYear(),month:dt.getUTCMonth()+1,state:CENTRES[centre].state,district:CENTRES[centre].district,centre,fiber:'Cotton',count:counts[i],blend:section,product:'Cotton Yarn',price_inr_kg:nums[i],frequency:'Monthly',source:'Office of the Textile Commissioner',source_short:'TXC',source_url:HISTORICAL_URL});
+    const tail=line.slice((mt.index||0)+mt[0].length);
+    const values=(tail.match(/\b\d+(?:\.\d+)?\b/g)||[]).map(Number).filter(v=>v>120&&v<2000);
+    for(let i=0;i<Math.min(counts.length,values.length);i++){
+      const [state,district]=CENTRES[centre];
+      out.push({date:iso(dt),year:dt.getUTCFullYear(),month:dt.getUTCMonth()+1,state,district,centre,fiber:'Cotton',count:counts[i],blend:section,product:'Cotton Yarn',price_inr_kg:values[i],frequency:'Monthly',source:'Office of the Textile Commissioner',source_short:'TXC',source_url:TXC_HIST});
+    }
   }
   return out;
 }
-
-const PATTERNS=[
-  [/POLY\s*\/\s*COTTON\s+BLENDED\s+YARN/i,'Polyester/Cotton','Polyester/Cotton Blended Yarn'],
-  [/POLY\s*\/\s*VISC(?:OSE)?\.?\s+BLENDED\s+YARN/i,'Polyester/Viscose','Polyester/Viscose Blended Yarn'],
-  [/POLYESTER\s+VISCOSE\s+BLENDED\s+YARN/i,'Polyester/Viscose','Polyester/Viscose Blended Yarn'],
-  [/POLYESTER\s+COTTON\s+BLENDED\s+YARN/i,'Polyester/Cotton','Polyester/Cotton Blended Yarn'],
-  [/VISCOSE\s+SPUN\s+YARN/i,'Viscose','Viscose Spun Yarn'],
-  [/VISCOSE\s+STAPLE\s+FIB(?:R)?E/i,'Viscose','Viscose Staple Fibre'],
-  [/POLYESTER\s+STAPLE\s+FIB(?:R)?E/i,'Polyester','Polyester Staple Fibre'],
-  [/VISCOSE\s+FILAMENT\s+YARN/i,'Viscose','Viscose Filament Yarn'],
-  [/POLYESTER\s+FILAMENT\s+YARN/i,'Polyester','Polyester Filament Yarn'],
-  [/NYLON\s+FILAMENT\s+YARN/i,'Nylon','Nylon Filament Yarn'],
-  [/ACRYLIC\s+(?:SPUN\s+)?YARN/i,'Acrylic','Acrylic Yarn'],
-  [/TEXTURI[ZS]ED\s+YARN/i,'Polyester','Texturised Yarn'],
-  [/POLYESTER\s+YARN/i,'Polyester','Polyester Yarn'],
-  [/NYLON\s+YARN/i,'Nylon','Nylon Yarn'],
-  [/WOOLLEN\s+YARN/i,'Wool','Woollen Yarn'],
-  [/WOOL\s+TOPS?/i,'Wool','Wool Tops']
+const CLASS=[
+ [/POLYESTER[- /]*VISCOSE|VISCOSE[- /]*POLYESTER|\bPV\b/i,'Polyester/Viscose','Polyester/Viscose Blended Yarn'],
+ [/POLYESTER[- /]*COTTON|COTTON[- /]*POLYESTER|\bPC\b/i,'Polyester/Cotton','Polyester/Cotton Blended Yarn'],
+ [/VISCOSE|VSF/i,'Viscose','Viscose Yarn'],[/POLYESTER|PSF/i,'Polyester','Polyester Yarn'],[/NYLON/i,'Nylon','Nylon Yarn'],[/ACRYLIC/i,'Acrylic','Acrylic Yarn'],[/WOOL/i,'Wool','Wool Yarn'],[/LINEN/i,'Linen','Linen Yarn'],[/HEMP/i,'Hemp','Hemp Yarn'],[/SILK/i,'Silk','Silk Yarn'],[/MODAL/i,'Modal','Modal Yarn'],[/LYOCELL|TENCEL/i,'Lyocell','Lyocell Yarn'],[/COTTON|COMBED/i,'Cotton','Cotton Yarn']
 ];
-function classify(line){for(const [re,f,p] of PATTERNS)if(re.test(line))return{fiber:f,product:p};if(/COTTON\s+YARN|COMBED\s+YARN/i.test(line))return{fiber:'Cotton',product:'Cotton Yarn'};return null}
+function classify(s){for(const [re,f,p] of CLASS)if(re.test(s))return[f,p];return null}
+function countFrom(s){const m=String(s).match(/(?:^|[\s|/-])(\d{1,3})\s*S\b/i);return m?m[1]+'s':'—'}
 function weekly(text,source){
   const lines=text.split(/\r?\n/).map(clean).filter(Boolean),out=[];let reportDate='';
   for(const line of lines){
-    const m=line.match(/(?:week\s+ending|for\s+the\s+week\s+ending|as\s+on|dated|date)\s*[:\-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{4})/i);if(m){const dt=dmy(m[1]);if(dt)reportDate=iso(dt)}
-    const c=classify(line);if(!c||!reportDate||reportDate<MIN_DATE)continue;
-    const idx=line.toUpperCase().indexOf(c.product.toUpperCase()),tail=idx>=0?line.slice(idx+c.product.length):line;
-    const candidates=(tail.match(/\b\d+(?:\.\d+)?\b/g)||[]).map(Number).filter(n=>n>20&&n<100000);
-    if(!candidates.length)continue;
-    out.push({date:reportDate,year:+reportDate.slice(0,4),month:+reportDate.slice(5,7),state:'All India',district:'Official weekly report',centre:'Official market average',fiber:c.fiber,count:'Average',blend:/BLENDED/i.test(c.product)?c.product:'—',product:c.product,price_inr_kg:candidates[0],frequency:'Weekly',source:'Office of the Textile Commissioner',source_short:'TXC',source_url:source.url});
+    const dm=line.match(/(?:week\s+ending|for\s+the\s+week\s+ending|as\s+on|dated|date)\s*[:\-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{4})/i);if(dm){const d=dateDMY(dm[1]);if(d)reportDate=iso(d)}
+    if(!reportDate)continue;const c=classify(line);if(!c||reportDate<MIN_DATE)continue;
+    const tail=line.replace(/.*?(?:YARN|FIBRE|FIBER)/i,' ');const vals=(tail.match(/\b\d+(?:\.\d+)?\b/g)||[]).map(Number).filter(v=>v>20&&v<100000);if(!vals.length)continue;
+    out.push({date:reportDate,year:+reportDate.slice(0,4),month:+reportDate.slice(5,7),state:'All India',district:'Official weekly report',centre:'Official market average',fiber:c[0],count:'Average',blend:/BLENDED/i.test(c[1])?c[1]:'—',product:c[1],price_inr_kg:vals[0],frequency:'Weekly',source:'Office of the Textile Commissioner',source_short:'TXC',source_url:source});
   }
   return out;
 }
-
-function archiveItems(html,archive){
-  const rows=html.match(/<tr[\s\S]*?<\/tr>/gi)||[],raw=[];
+function archiveItems(html,archiveUrl,region){
+  const rows=html.match(/<tr[\s\S]*?<\/tr>/gi)||[],items=[];
   for(const row of rows){
     const text=clean(row.replace(/<[^>]+>/g,' '));
     if(!/YARN\s+(?:H1\s+)?PRICE\s+LIST/i.test(text))continue;
-    const m=text.match(/(\d{1,2}[./-]\d{1,2}[./-]\d{4})/),dt=m&&dmy(m[1]);if(!dt||iso(dt)<NTC_FROM)continue;
-    const urls=[];const re=/(?:href|data-href|src)\s*=\s*["']([^"']+)["']/gi;let x;
-    while((x=re.exec(row)))urls.push(x[1]);
-    for(const q of row.matchAll(/["']([^"']+?\.pdf(?:\?[^"']*)?)["']/gi))urls.push(q[1]);
-    const href=urls.map(u=>{try{return new URL(u.replace(/&amp;/g,'&'),archive.url).href}catch{return ''}}).find(u=>/\.pdf(?:[?#]|$)/i.test(u));
-    if(href)raw.push({region:archive.region,date:iso(dt),url:href,title:text});
+    const dm=text.match(/(\d{1,2}[./-]\d{1,2}[./-]\d{4})/);const d=dm&&dateDMY(dm[1]);if(!d||iso(d)<NTC_FROM)continue;
+    const urls=[];for(const m of row.matchAll(/(?:href|data-href|src)\s*=\s*["']([^"']+)["']/gi))urls.push(m[1]);
+    for(const m of row.matchAll(/["']([^"']+\.pdf(?:\?[^"']*)?)["']/gi))urls.push(m[1]);
+    const url=urls.map(u=>{try{return new URL(u.replace(/&amp;/g,'&'),archiveUrl).href}catch{return ''}}).find(u=>/\.pdf(?:[?#]|$)/i.test(u));
+    if(url)items.push({region,date:iso(d),url});
   }
-  // One latest official NTC price list per month keeps the API responsive while retaining monthly history.
-  const seen=new Set(),out=[];for(const item of raw.sort((a,b)=>b.date.localeCompare(a.date))){const k=item.region+'|'+item.date.slice(0,7);if(seen.has(k))continue;seen.add(k);out.push(item)}return out;
+  // Keep one latest list per calendar month and region.
+  const seen=new Set(),out=[];for(const x of items.sort((a,b)=>b.date.localeCompare(a.date))){const k=x.region+'|'+x.date.slice(0,7);if(seen.has(k))continue;seen.add(k);out.push(x)}return out;
 }
-function ntcClass(s){const t=String(s).toUpperCase();if(/POLYESTER.*VISCOSE|VISCOSE.*POLYESTER|\bPV\b/.test(t))return['Polyester/Viscose','Polyester/Viscose Blended Yarn'];if(/POLYESTER.*COTTON|COTTON.*POLYESTER|\bPC\b/.test(t))return['Polyester/Cotton','Polyester/Cotton Blended Yarn'];if(/VISCOSE|VSF/.test(t))return['Viscose','Viscose Yarn'];if(/POLYESTER|PSF/.test(t))return['Polyester','Polyester Yarn'];if(/NYLON/.test(t))return['Nylon','Nylon Yarn'];if(/ACRYLIC/.test(t))return['Acrylic','Acrylic Yarn'];if(/WOOL|WOOLLEN/.test(t))return['Wool','Wool Yarn'];if(/LINEN/.test(t))return['Linen','Linen Yarn'];if(/HEMP/.test(t))return['Hemp','Hemp Yarn'];if(/SILK/.test(t))return['Silk','Silk Yarn'];if(/MODAL/.test(t))return['Modal','Modal Yarn'];if(/LYOCELL/.test(t))return['Lyocell','Lyocell Yarn'];if(/COTTON|COMBED/.test(t))return['Cotton','Cotton Yarn'];return null}
-function countFrom(s){const m=String(s).match(/(?:^|[ /-])(\d{1,3})\s*S\b/i);return m?m[1]+'s':'—'}
 function parseNtc(text,item){
-  const lines=text.split(/\r?\n/).map(clean).filter(Boolean),out=[];let section='';const dt=dmy(item.date);if(!dt)return out;
-  for(let i=0;i<lines.length;i++){
-    const line=lines[i];
-    if(/HANK YARN|COTTON YARN|COMBED YARN/i.test(line)&&!/POLYESTER/i.test(line))section='Cotton';
-    else if(/POLYESTER\s+STAPLE|POLYESTER-COTTON|POLYESTER\s+YARN/i.test(line))section='Polyester';
-    else if(/POLYESTER-VISCOSE|VISCOSE\s+YARN/i.test(line))section='Viscose';
-    else if(/NYLON/i.test(line))section='Nylon';
-    else if(/ACRYLIC/i.test(line))section='Acrylic';
-    else if(/WOOL/i.test(line))section='Wool';
-    const rate=/\b(\d+(?:\.\d{1,2})?)\s+Ex[- ]?Mill\s+Rate\s*\/\s*kg\b/i.exec(line);if(!rate)continue;
-    const price=num(rate[1]);if(price===null||price<=0||price>=10000)continue;
-    const before=line.slice(0,rate.index).trim(),prior=i>0?lines[i-1]:'';const variety=before||prior;const c=ntcClass(`${section} ${variety}`);if(!c)continue;
-    out.push({date:item.date,year:dt.getUTCFullYear(),month:dt.getUTCMonth()+1,state:'Not specified by source',district:item.region,centre:item.region,fiber:c[0],count:countFrom(variety),blend:/BLENDED|\bPC\b|\bPV\b|\d{2}:\d{2}/i.test(variety)?'Blended':'—',product:c[1],yarn_name:variety,mill_name:'NTC',price_inr_kg:price,frequency:'Official NTC price list',source:'National Textile Corporation',source_short:'NTC',source_url:item.url,region:item.region});
+  const lines=text.split(/\r?\n/).map(clean).filter(Boolean);const joined=lines.join(' | ');const out=[];const d=dateDMY(item.date);if(!d)return out;
+  // NTC PDFs use rows such as: 45s PC 70:30 | Mill | 137.90 | Ex-Mill Rate/kg.
+  const re=/([^|\n]{1,220})\s*\|\s*(?:[^|\n]{1,160})\s*\|\s*(\d+(?:\.\d{1,2})?)\s*\|\s*Ex[- ]?Mill\s+Rate\s*\/\s*kg/gi;
+  let m;while((m=re.exec(joined))){
+    const variety=clean(m[1]),price=num(m[2]);if(!variety||price===null||price<=0||price>=10000)continue;const c=classify(variety);if(!c)continue;
+    out.push({date:item.date,year:d.getUTCFullYear(),month:d.getUTCMonth()+1,state:'Not specified by source',district:item.region,centre:item.region,fiber:c[0],count:countFrom(variety),blend:/BLENDED|\bPC\b|\bPV\b|\d{2}:\d{2}/i.test(variety)?'Blended':'—',product:c[1],yarn_name:variety,mill_name:'NTC',price_inr_kg:price,frequency:'Official NTC price list',source:'National Textile Corporation',source_short:'NTC',source_url:item.url,region:item.region});
   }
   return out;
 }
-async function fetchNtcArchive(archive){
+async function getNtc(archiveUrl,region){
   try{
-    const r=await fetch(archive.url,{headers:{'User-Agent':'Textile-Intelligence-Platform/7.0','Accept':'text/html,*/*'},redirect:'follow',signal:AbortSignal.timeout(15000)});if(!r.ok)throw new Error(`HTTP ${r.status}`);const html=await r.text();const items=archiveItems(html,archive);const results=[];const concurrency=4;
-    for(let i=0;i<items.length;i+=concurrency){const batch=items.slice(i,i+concurrency);const settled=await Promise.allSettled(batch.map(async item=>parseNtc(await pdfText(item.url),item)));for(const x of settled)if(x.status==='fulfilled')results.push(...x.value)}
-    return results;
-  }catch(e){console.warn(`NTC ${archive.region}:`,e.message);return[]}
+    const r=await fetch(archiveUrl,{headers:{'User-Agent':'Textile-Intelligence-Platform/8.0','Accept':'text/html,*/*'},redirect:'follow',signal:AbortSignal.timeout(12000)});if(!r.ok)throw new Error(`HTTP ${r.status}`);const html=await r.text();const items=archiveItems(html,archiveUrl,region);const out=[];
+    for(let i=0;i<items.length;i+=5){const batch=items.slice(i,i+5);const settled=await Promise.allSettled(batch.map(async x=>parseNtc(await getPdfText(x.url),x)));for(const s of settled)if(s.status==='fulfilled')out.push(...s.value)}return out;
+  }catch(e){console.warn(`NTC ${region}: ${e.message}`);return []}
 }
-function dedupe(rows){const seen=new Set();return rows.filter(r=>{if(!r.date||r.date<MIN_DATE||!Number.isFinite(Number(r.price_inr_kg)))return false;const k=[r.date,r.source_short,r.region||'',r.centre,r.fiber,r.count,r.yarn_name||r.product,r.price_inr_kg].join('|');if(seen.has(k))return false;seen.add(k);return true})}
-
+function dedupe(rows){const seen=new Set();return rows.filter(r=>r.date>=MIN_DATE&&Number.isFinite(Number(r.price_inr_kg))&&r.price_inr_kg>0&&!((()=>{const k=[r.date,r.source_short,r.region||'',r.centre,r.fiber,r.count,r.yarn_name||r.product,r.price_inr_kg].join('|');if(seen.has(k))return true;seen.add(k);return false})()));}
 export default async function handler(req,res){
   if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'});
-  res.setHeader('Cache-Control','s-maxage=21600, stale-while-revalidate=86400');res.setHeader('Access-Control-Allow-Origin','*');
+  res.setHeader('Access-Control-Allow-Origin','*');res.setHeader('Cache-Control','s-maxage=21600, stale-while-revalidate=86400');
   try{
-    const results=await Promise.allSettled([
-      pdfText(HISTORICAL_URL).then(historical),
-      ...WEEKLY_URLS.map(s=>pdfText(s.url).then(t=>weekly(t,s))),
-      ...NTC_ARCHIVES.map(fetchNtcArchive)
+    const [hist,...parts]=await Promise.all([
+      getPdfText(TXC_HIST).then(historical),
+      ...TXC_SHEETS.map(([u,s])=>getPdfText(u).then(t=>weekly(t,u)).catch(e=>{console.warn(`TXC ${s}: ${e.message}`);return []})),
+      ...NTC_ARCHIVES.map(([u,r])=>getNtc(u,r))
     ]);
-    const rows=[];const errors=[];for(const x of results){if(x.status==='fulfilled')rows.push(...(Array.isArray(x.value)?x.value:[]));else errors.push(String(x.reason?.message||x.reason))}
-    const records=dedupe(rows.flat()).sort((a,b)=>a.date.localeCompare(b.date)||a.fiber.localeCompare(b.fiber)||String(a.count).localeCompare(String(b.count),undefined,{numeric:true}));
-    const dates=records.map(r=>r.date).sort(),ntc=records.filter(r=>r.source_short==='NTC');
-    return res.status(200).json({source:'official-textile-sources',records,count:records.length,fiber_types:[...new Set(records.map(r=>r.fiber).filter(Boolean))].sort(),product_types:[...new Set(records.map(r=>r.product).filter(Boolean))].sort(),coverage:{minimum_date:MIN_DATE,historical_cotton:'January 2021 to March 2025',ntc_post_mar_2025_records:ntc.length,latest_source_record:dates.at(-1)||null,weekly_sheets_attempted:WEEKLY_URLS.map(x=>x.sheet),ntc_archives_attempted:NTC_ARCHIVES.map(x=>x.region),parser_errors:errors,note:'Only successfully parsed official source rows dated 2021-01-01 or later are returned. NTC is sampled at the latest official price list per region/month to keep the API responsive. Filter categories are derived from returned records.'}});
+    const records=dedupe([hist,...parts.flat()]).sort((a,b)=>a.date.localeCompare(b.date)||String(a.fiber).localeCompare(String(b.fiber))||String(a.count).localeCompare(String(b.count),undefined,{numeric:true}));
+    const ntc=records.filter(r=>r.source_short==='NTC');const dates=records.map(r=>r.date).sort();
+    return res.status(200).json({source:'official-textile-sources',records,count:records.length,fiber_types:[...new Set(records.map(r=>r.fiber))].sort(),product_types:[...new Set(records.map(r=>r.product))].sort(),coverage:{minimum_date:MIN_DATE,historical_cotton:'January 2021 to March 2025',ntc_post_mar_2025_records:ntc.length,latest_source_record:dates.at(-1)||null,txc_sources_attempted:TXC_SHEETS.map(x=>x[1]),ntc_archives_attempted:NTC_ARCHIVES.map(x=>x[1]),note:'Rows are parsed from official TXC and NTC publications. Filter values are derived only from successfully parsed official records.'}});
   }catch(e){console.error(e);return res.status(500).json({error:'Official yarn data ingestion failed',detail:e.message});}
 }
