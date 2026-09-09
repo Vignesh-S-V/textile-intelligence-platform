@@ -3,235 +3,62 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>India Cotton Market Prices — Live</title>
+<title>Textile Intelligence Platform</title>
 <style>
-  :root{
-    --blue:#2563eb; --red:#dc2626; --border:#d1d5db; --bg:#f4f6f9; --text:#111827; --muted:#6b7280;
-  }
-  *{box-sizing:border-box;}
-  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; background:var(--bg); margin:0; padding:24px; color:var(--text);}
-  .card{background:#fff; border:1px solid var(--border); border-radius:10px; padding:20px 24px; margin-bottom:20px; box-shadow:0 1px 2px rgba(0,0,0,.04);}
-  .filters-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:16px; align-items:end;}
-  .field label{display:block; font-size:12px; font-weight:700; letter-spacing:.03em; color:#374151; margin-bottom:6px; text-transform:uppercase;}
-  .field select{width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:6px; font-size:14px; background:#fff; color:var(--text);}
-  .clear-btn{background:var(--red); color:#fff; border:none; border-radius:6px; padding:10px 18px; font-weight:700; font-size:14px; cursor:pointer; white-space:nowrap;}
-  .clear-btn:hover{background:#b91c1c;}
-  .refresh-btn{background:var(--blue); color:#fff; border:none; border-radius:6px; padding:10px 18px; font-weight:700; font-size:14px; cursor:pointer;}
-  .refresh-btn:hover{background:#1d4ed8;}
-  .toolbar{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-top:16px;}
-  .status{font-size:13px; color:var(--muted);}
-  .status.error{color:var(--red); font-weight:600;}
-  .status.ok{color:#059669; font-weight:600;}
-  h1{font-size:22px; margin:0 0 4px;}
-  h2{font-size:18px; margin:0 0 14px;}
-  .subtitle{color:var(--muted); font-size:13px; margin-bottom:0;}
-  table{width:100%; border-collapse:collapse; font-size:13.5px;}
-  th, td{padding:10px 12px; text-align:left; border-bottom:1px solid #e5e7eb;}
-  th{background:#f9fafb; position:sticky; top:0; font-weight:700; color:#374151; cursor:pointer; user-select:none;}
-  th:hover{background:#f1f5f9;}
-  tbody tr:hover{background:#f8fafc;}
-  .table-wrap{max-height:520px; overflow:auto; border:1px solid #e5e7eb; border-radius:8px;}
-  .badge{display:inline-block; background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:700;}
-  .empty{padding:40px; text-align:center; color:var(--muted);}
-  .spinner{width:16px; height:16px; border:2px solid #cbd5e1; border-top-color:var(--blue); border-radius:50%; display:inline-block; animation:spin .7s linear infinite; vertical-align:-3px; margin-right:6px;}
-  @keyframes spin{to{transform:rotate(360deg);}}
+:root{--navy:#071d49;--blue:#1769d5;--light:#f5f8fc;--border:#cbd6e5;--muted:#61728a;--red:#ef4444;--green:#07865b}
+*{box-sizing:border-box}body{margin:0;background:var(--light);font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--navy)}
+.container{max-width:1500px;margin:auto;padding:28px 30px}.hero{text-align:center;padding:10px 0 28px;border-bottom:1px solid #dbe3ee}.hero h1{margin:0;font-size:38px;font-weight:900;letter-spacing:1px}.hero p{margin:12px 0 0;color:#65728a;letter-spacing:3px;font-size:14px}.card{background:#fff;border:1px solid var(--border);border-radius:13px;padding:24px;margin-top:30px;box-shadow:0 2px 8px #102d5b0c}.filters{display:grid;grid-template-columns:repeat(5,minmax(150px,1fr)) auto;gap:14px;align-items:end}.field label{display:block;font-size:12px;font-weight:800;margin:0 0 7px;text-transform:uppercase}.field select{width:100%;height:42px;border:1px solid #aebed4;border-radius:7px;padding:0 11px;background:#fff;color:var(--navy);font-size:14px}.btn{height:42px;border:0;border-radius:7px;padding:0 20px;font-weight:800;cursor:pointer}.clear{background:var(--red);color:white}.refresh{background:var(--blue);color:#fff}.header-row{display:flex;justify-content:space-between;gap:15px;align-items:center}.header-row h2{margin:0;font-size:21px}.status{font-size:13px;color:var(--muted)}.status.ok{color:var(--green);font-weight:700}.status.err{color:#b91c1c;font-weight:700}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:18px}.metric{background:#f8fbff;border:1px solid #d8e2ef;border-radius:10px;padding:16px}.metric b{font-size:24px;display:block}.metric span{font-size:12px;color:var(--muted)}.chart-wrap{height:370px;margin-top:18px;border:1px solid #e0e7f0;border-radius:10px;padding:15px;background:#fff}.table-wrap{max-height:580px;overflow:auto;border:1px solid #dce4ee;border-radius:9px;margin-top:18px}.table{width:100%;border-collapse:collapse;font-size:13px}.table th,.table td{padding:11px 12px;border-bottom:1px solid #e8edf4;text-align:left;white-space:nowrap}.table th{position:sticky;top:0;background:#f5f8fc;font-weight:800}.table tr:hover{background:#f8fbff}.empty{text-align:center;padding:50px;color:var(--muted)}.note{font-size:12px;color:var(--muted);line-height:1.5;margin-top:13px}.badge{display:inline-block;padding:3px 9px;border-radius:20px;background:#e9fbf4;color:#087953;font-weight:800;font-size:11px}.spinner{display:inline-block;width:14px;height:14px;border:2px solid #cbd5e1;border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:5px}@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:1000px){.filters{grid-template-columns:repeat(3,1fr)}.summary{grid-template-columns:repeat(2,1fr)}}@media(max-width:650px){.container{padding:16px}.hero h1{font-size:27px}.filters{grid-template-columns:1fr}.summary{grid-template-columns:1fr}.header-row{align-items:flex-start;flex-direction:column}}
 </style>
 </head>
 <body>
+<div class="container">
+  <header class="hero"><h1>TEXTILE INTELLIGENCE PLATFORM</h1><p>REAL-TIME YARN • LOOM • FABRIC • MARKET INTELLIGENCE</p></header>
 
-<div class="card">
-  <div class="toolbar">
-    <div>
-      <h1>India Cotton Market Prices</h1>
-      <div class="subtitle">Live data served by our own backend, which securely holds the Government of India API key. The browser never sees the key or calls the government API directly.</div>
+  <section class="card">
+    <div class="filters">
+      <div class="field"><label>State</label><select id="state"><option value="">All States</option></select></div>
+      <div class="field"><label>District</label><select id="district"><option value="">All Districts</option></select></div>
+      <div class="field"><label>Fiber</label><select id="fiber"><option value="">All Fibers</option></select></div>
+      <div class="field"><label>Count</label><select id="count"><option value="">All Counts</option></select></div>
+      <div class="field"><label>Blend</label><select id="blend"><option value="">All Blends</option></select></div>
+      <button class="btn clear" id="clear">Clear All</button>
     </div>
-    <button class="refresh-btn" onclick="loadData(true)">Refresh Live Data</button>
-  </div>
-</div>
+    <div class="filters" style="grid-template-columns:repeat(3,minmax(150px,1fr)) auto;margin-top:14px">
+      <div class="field"><label>From Year</label><select id="fromYear"><option value="">All Years</option></select></div>
+      <div class="field"><label>To Year</label><select id="toYear"><option value="">All Years</option></select></div>
+      <div class="field"><label>Centre</label><select id="centre"><option value="">All Centres</option></select></div>
+      <button class="btn refresh" id="refresh">Refresh Official Data</button>
+    </div>
+  </section>
 
-<div class="card">
-  <div class="filters-grid">
-    <div class="field"><label>State</label><select id="f_state"><option value="">All States</option></select></div>
-    <div class="field"><label>District</label><select id="f_district"><option value="">All Districts</option></select></div>
-    <div class="field"><label>Market</label><select id="f_market"><option value="">All Markets</option></select></div>
-    <div class="field"><label>Variety</label><select id="f_variety"><option value="">All Varieties</option></select></div>
-    <div class="field"><label>Grade</label><select id="f_grade"><option value="">All Grades</option></select></div>
-    <div class="field"><label>Year</label><select id="f_year"><option value="">All Years</option></select></div>
-    <div class="field"><label>Month</label><select id="f_month"><option value="">All Months</option></select></div>
-    <div class="field"><button class="clear-btn" onclick="clearFilters()">Clear All</button></div>
-  </div>
+  <section class="card">
+    <div class="header-row"><h2>Yarn Price History</h2><div id="status" class="status"><span class="spinner"></span> Loading official records...</div></div>
+    <div class="summary">
+      <div class="metric"><b id="records">0</b><span>FILTERED RECORDS</span></div>
+      <div class="metric"><b id="dateRange">—</b><span>DATA RANGE</span></div>
+      <div class="metric"><b id="avg">—</b><span>AVERAGE PRICE (₹/KG)</span></div>
+      <div class="metric"><b id="latest">—</b><span>LATEST PRICE (₹/KG)</span></div>
+    </div>
+    <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    <div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>State</th><th>District</th><th>Centre</th><th>Fiber</th><th>Count</th><th>Blend</th><th>Price ₹/kg</th><th>Frequency</th><th>Source</th></tr></thead><tbody id="tbody"><tr><td colspan="10" class="empty">Loading...</td></tr></tbody></table></div>
+    <div class="note">Source: Office of the Textile Commissioner, Ministry of Textiles, Government of India. The dashboard does not fabricate missing dates. Historical official yarn reports and the latest published weekly report are parsed separately; the displayed range therefore depends on what the official source actually publishes.</div>
+  </section>
 </div>
-
-<div class="card">
-  <div class="toolbar">
-    <h2 style="margin:0;">Market Data Overview</h2>
-    <span id="status" class="status">Loading...</span>
-  </div>
-  <div class="table-wrap">
-    <table id="dataTable">
-      <thead>
-        <tr>
-          <th data-key="state">State</th>
-          <th data-key="district">District</th>
-          <th data-key="market">Market</th>
-          <th data-key="commodity">Commodity</th>
-          <th data-key="variety">Variety</th>
-          <th data-key="grade">Grade</th>
-          <th data-key="arrival_date">Arrival Date</th>
-          <th data-key="min_price">Min Price (₹/Qtl)</th>
-          <th data-key="max_price">Max Price (₹/Qtl)</th>
-          <th data-key="modal_price">Modal Price (₹/Qtl)</th>
-        </tr>
-      </thead>
-      <tbody id="tbody"><tr><td colspan="10" class="empty">Loading...</td></tr></tbody>
-    </table>
-  </div>
-</div>
-
 <script>
-let rawRecords = [];
-let sortKey = null, sortAsc = true;
-
-function setStatus(msg, cls){
-  const el = document.getElementById('status');
-  el.className = 'status ' + (cls || '');
-  el.innerHTML = msg;
-}
-
-async function loadData(forceRefresh){
-  setStatus('<span class="spinner"></span> Fetching live data from backend...');
-  document.getElementById('tbody').innerHTML = '<tr><td colspan="10" class="empty">Loading real-time data...</td></tr>';
-
-  try{
-    const res = await fetch('/api/prices' + (forceRefresh ? '?refresh=1' : ''));
-    if(!res.ok){
-      const errBody = await res.json().catch(()=>({}));
-      throw new Error(errBody.error || ('HTTP ' + res.status));
-    }
-    const data = await res.json();
-    rawRecords = data.records || [];
-
-    if(rawRecords.length === 0){
-      setStatus('No live records returned right now. Try "Refresh Live Data" again in a moment.', 'error');
-      document.getElementById('tbody').innerHTML = '<tr><td colspan="10" class="empty">No records returned by the live API.</td></tr>';
-      return;
-    }
-
-    populateFilterOptions(rawRecords);
-    renderTable(applyFilters(rawRecords));
-    setStatus(`<span class="badge">${data.source === 'live' ? 'LIVE' : 'CACHED'}</span> ${rawRecords.length} real records via backend (Govt. of India source).`, 'ok');
-  }catch(err){
-    console.error(err);
-    setStatus('Backend could not reach the government API (' + err.message + '). No fallback/sample data is shown. Please retry.', 'error');
-    document.getElementById('tbody').innerHTML = '<tr><td colspan="10" class="empty">Could not load live data. See message above.</td></tr>';
-  }
-}
-
-function uniqueSorted(arr){
-  return [...new Set(arr.filter(v => v !== undefined && v !== null && String(v).trim() !== ''))].sort();
-}
-
-function populateFilterOptions(records){
-  const fields = { f_state:'state', f_district:'district', f_market:'market', f_variety:'variety', f_grade:'grade' };
-  for(const [selId, key] of Object.entries(fields)){
-    const sel = document.getElementById(selId);
-    const current = sel.value;
-    const values = uniqueSorted(records.map(r => r[key]));
-    const label = selId.replace('f_','').replace(/^\w/, c=>c.toUpperCase());
-    sel.innerHTML = `<option value="">All ${label}s</option>` + values.map(v => `<option value="${v}">${v}</option>`).join('');
-    if(values.includes(current)) sel.value = current;
-  }
-
-  const years = new Set(), months = new Set();
-  const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-  records.forEach(r => { const d = parseArrivalDate(r.arrival_date); if(d){ years.add(d.getFullYear()); months.add(d.getMonth()); } });
-
-  const ySel = document.getElementById('f_year'); const yCurrent = ySel.value;
-  ySel.innerHTML = '<option value="">All Years</option>' + [...years].sort((a,b)=>b-a).map(y => `<option value="${y}">${y}</option>`).join('');
-  if([...years].map(String).includes(yCurrent)) ySel.value = yCurrent;
-
-  const mSel = document.getElementById('f_month'); const mCurrent = mSel.value;
-  mSel.innerHTML = '<option value="">All Months</option>' + [...months].sort((a,b)=>a-b).map(m => `<option value="${m}">${monthNames[m]}</option>`).join('');
-  if([...months].map(String).includes(mCurrent)) mSel.value = mCurrent;
-}
-
-function parseArrivalDate(str){
-  if(!str) return null;
-  const parts = str.split(/[\/\-]/);
-  if(parts.length !== 3) return null;
-  const [dd, mm, yyyy] = parts.map(Number);
-  if(!dd || !mm || !yyyy) return null;
-  return new Date(yyyy, mm - 1, dd);
-}
-
-function applyFilters(records){
-  const state = document.getElementById('f_state').value;
-  const district = document.getElementById('f_district').value;
-  const market = document.getElementById('f_market').value;
-  const variety = document.getElementById('f_variety').value;
-  const grade = document.getElementById('f_grade').value;
-  const year = document.getElementById('f_year').value;
-  const month = document.getElementById('f_month').value;
-
-  return records.filter(r => {
-    if(state && r.state !== state) return false;
-    if(district && r.district !== district) return false;
-    if(market && r.market !== market) return false;
-    if(variety && r.variety !== variety) return false;
-    if(grade && r.grade !== grade) return false;
-    if(year || month !== ''){
-      const d = parseArrivalDate(r.arrival_date);
-      if(!d) return false;
-      if(year && String(d.getFullYear()) !== year) return false;
-      if(month !== '' && String(d.getMonth()) !== month) return false;
-    }
-    return true;
-  });
-}
-
-function renderTable(records){
-  const tbody = document.getElementById('tbody');
-  if(records.length === 0){
-    tbody.innerHTML = '<tr><td colspan="10" class="empty">No records match the selected filters.</td></tr>';
-    return;
-  }
-  let rows = records;
-  if(sortKey){
-    rows = [...rows].sort((a,b)=>{
-      let va = a[sortKey] ?? '', vb = b[sortKey] ?? '';
-      const na = parseFloat(va), nb = parseFloat(vb);
-      if(!isNaN(na) && !isNaN(nb)){ va = na; vb = nb; }
-      if(va < vb) return sortAsc ? -1 : 1;
-      if(va > vb) return sortAsc ? 1 : -1;
-      return 0;
-    });
-  }
-  tbody.innerHTML = rows.map(r => `
-    <tr>
-      <td>${r.state ?? ''}</td><td>${r.district ?? ''}</td><td>${r.market ?? ''}</td>
-      <td>${r.commodity ?? ''}</td><td>${r.variety ?? ''}</td><td>${r.grade ?? ''}</td>
-      <td>${r.arrival_date ?? ''}</td><td>${r.min_price ?? ''}</td><td>${r.max_price ?? ''}</td><td>${r.modal_price ?? ''}</td>
-    </tr>`).join('');
-}
-
-function clearFilters(){
-  ['f_state','f_district','f_market','f_variety','f_grade','f_year','f_month'].forEach(id => document.getElementById(id).value = '');
-  renderTable(applyFilters(rawRecords));
-}
-
-['f_state','f_district','f_market','f_variety','f_grade','f_year','f_month'].forEach(id => {
-  document.getElementById(id).addEventListener('change', () => renderTable(applyFilters(rawRecords)));
-});
-
-document.querySelectorAll('th[data-key]').forEach(th => {
-  th.addEventListener('click', () => {
-    const key = th.getAttribute('data-key');
-    if(sortKey === key) sortAsc = !sortAsc; else { sortKey = key; sortAsc = true; }
-    renderTable(applyFilters(rawRecords));
-  });
-});
-
-loadData(false);
+let allRecords=[], chart;
+const ids=['state','district','fiber','count','blend','fromYear','toYear','centre'];
+const $=id=>document.getElementById(id);
+function unique(key){return [...new Set(allRecords.map(r=>r[key]).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}))}
+function fill(id,values,label){const el=$(id),old=el.value;el.innerHTML=`<option value="">${label}</option>`+values.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');if(values.includes(old))el.value=old}
+function escapeHtml(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function populate(){fill('state',unique('state'),'All States');fill('district',unique('district'),'All Districts');fill('fiber',unique('fiber'),'All Fibers');fill('count',unique('count'),'All Counts');fill('blend',unique('blend'),'All Blends');fill('centre',unique('centre'),'All Centres');const ys=unique('year').sort((a,b)=>b-a);fill('fromYear',ys,'All Years');fill('toYear',ys,'All Years')}
+function filtered(){const f={state:$('state').value,district:$('district').value,fiber:$('fiber').value,count:$('count').value,blend:$('blend').value,centre:$('centre').value,from:+$('fromYear').value||null,to:+$('toYear').value||null};return allRecords.filter(r=>{for(const k of ['state','district','fiber','count','blend','centre'])if(f[k]&&r[k]!==f[k])return false;if(f.from&&r.year<f.from)return false;if(f.to&&r.year>f.to)return false;return true})}
+function render(){const rows=filtered();$('records').textContent=rows.length.toLocaleString();const dates=rows.map(r=>r.date).sort();$('dateRange').textContent=dates.length?`${dates[0].slice(0,7)} → ${dates.at(-1).slice(0,7)}`:'—';const nums=rows.map(r=>+r.price_inr_kg).filter(Number.isFinite);$('avg').textContent=nums.length?(nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(2):'—';$('latest').textContent=rows.length?Number(rows.at(-1).price_inr_kg).toFixed(2):'—';renderTable(rows);renderChart(rows)}
+function renderTable(rows){$('tbody').innerHTML=rows.length?rows.map(r=>`<tr><td>${escapeHtml(r.date)}</td><td>${escapeHtml(r.state)}</td><td>${escapeHtml(r.district)}</td><td>${escapeHtml(r.centre)}</td><td>${escapeHtml(r.fiber)}</td><td>${escapeHtml(r.count)}</td><td>${escapeHtml(r.blend)}</td><td>${Number(r.price_inr_kg).toFixed(2)}</td><td>${escapeHtml(r.frequency)}</td><td><span class="badge">OFFICIAL</span></td></tr>`).join(''):'<tr><td colspan="10" class="empty">No records match these filters.</td></tr>'}
+function renderChart(rows){const ctx=$('chart').getContext('2d');if(chart)chart.destroy();const groups={};rows.forEach(r=>{groups[r.date]??=[];groups[r.date].push(+r.price_inr_kg)});const labels=Object.keys(groups).sort();const data=labels.map(d=>{const a=groups[d];return a.reduce((x,y)=>x+y,0)/a.length});chart=new Chart(ctx,{type:'line',data:{labels,datasets:[{label:'Average Yarn Price ₹/kg',data,borderColor:'#1769d5',backgroundColor:'#1769d51a',fill:true,tension:.25,pointRadius:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true}},scales:{x:{ticks:{maxTicksLimit:14}},y:{beginAtZero:false}}}})}
+async function load(){ $('status').innerHTML='<span class="spinner"></span> Fetching official yarn reports...';try{const r=await fetch('/api/yarn');const j=await r.json();if(!r.ok)throw new Error(j.error||'API error');allRecords=j.records||[];populate();render();$('status').textContent=`OFFICIAL • ${allRecords.length.toLocaleString()} records • latest published: ${j.coverage?.latest_available||'—'}`;$('status').className='status ok'}catch(e){console.error(e);$('status').textContent='Unable to load official yarn data: '+e.message;$('status').className='status err';$('tbody').innerHTML='<tr><td colspan="10" class="empty">Could not load official yarn records.</td></tr>'}}
+ids.forEach(id=>$(id).addEventListener('change',render));$('clear').onclick=()=>{ids.forEach(id=>$(id).value='');render()};$('refresh').onclick=load;load();
 </script>
-</body>
-</html>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</body></html>
