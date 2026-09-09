@@ -6,6 +6,7 @@ on:
     paths:
       - 'scripts/scrape_yarn.py'
       - 'package.json'
+      - '.github/workflows/update-yarn-data.yml'
   schedule:
     - cron: '17 2 * * *'
   workflow_dispatch:
@@ -26,32 +27,25 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Install scraper dependencies
         run: python -m pip install --upgrade pip requests beautifulsoup4 pdfplumber
-
       - name: Scrape official TXC, NTC and NHDC publications
         run: python scripts/scrape_yarn.py
-
       - name: Commit refreshed dataset
         run: |
           set -e
           git config user.name 'textile-data-bot'
           git config user.email 'textile-data-bot@users.noreply.github.com'
           git add data/yarn.json
-          if git diff --cached --quiet; then
-            echo 'No dataset changes.'
-            exit 0
-          fi
+          if git diff --cached --quiet; then echo 'No dataset changes.'; exit 0; fi
           git commit -m 'chore(data): refresh official yarn prices'
           for attempt in 1 2 3; do
             git fetch origin main
-            git rebase origin/main && git push origin HEAD:main && exit 0
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
             git rebase --abort || true
             git reset --hard origin/main
             python scripts/scrape_yarn.py
