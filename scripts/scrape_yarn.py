@@ -1,3 +1,4 @@
+# Scheduled official-data scraper. Vercel serves the generated data/yarn.json; it does not scrape PDFs during a user request.
 import io, json, re, time
 from datetime import datetime
 from pathlib import Path
@@ -21,9 +22,7 @@ CENTRES = {
     'ahmedabad': ('Ahmedabad', 'Gujarat', 'Ahmedabad'),
 }
 
-def clean(v):
-    return re.sub(r'\s+', ' ', str(v or '').replace('\xa0', ' ')).strip()
-
+def clean(v): return re.sub(r'\s+', ' ', str(v or '').replace('\xa0', ' ')).strip()
 def num(v):
     s = clean(v).replace(',', '')
     if not s or s in {'-', '—'}: return None
@@ -43,39 +42,28 @@ def month_date(s):
     return f"{2000+int(m[2]):04d}-{months[m[1][:3].lower()]:02d}-01"
 
 def get(url, timeout=60):
-    r = requests.get(url, headers=HEADERS, timeout=timeout)
-    r.raise_for_status()
-    return r.content
+    r = requests.get(url, headers=HEADERS, timeout=timeout); r.raise_for_status(); return r.content
 
 def add(rows, **kw):
     if not kw.get('date') or kw['date'] < MIN_DATE or not kw.get('price_inr_kg'): return
-    kw['price_inr_kg'] = float(kw['price_inr_kg'])
-    rows.append(kw)
+    kw['price_inr_kg'] = float(kw['price_inr_kg']); rows.append(kw)
 
 def txc_historical(rows):
-    data = get(TXC_HIST)
-    with pdfplumber.open(io.BytesIO(data)) as pdf:
-        section = ''
-        centre = ''
+    with pdfplumber.open(io.BytesIO(get(TXC_HIST))) as pdf:
+        section = ''; centre = ''
         for page in pdf.pages:
-            text = page.extract_text() or ''
-            low = text.lower()
+            low = (page.extract_text() or '').lower()
             if 'annexure-i' in low: section = 'Cone Combed'
             if 'annexure-ii' in low: section = 'Hosiery Combed'
             for key, meta in CENTRES.items():
-                if key in low and 'centre' in low and 'wise' in low:
-                    centre = meta[0]
-            tables = page.extract_tables() or []
-            for table in tables:
+                if key in low and 'centre' in low and 'wise' in low: centre = meta[0]
+            for table in page.extract_tables() or []:
                 for row in table:
                     cells = [clean(x) for x in (row or [])]
-                    if not cells: continue
-                    d = month_date(cells[0])
-                    if not d: continue
-                    if not centre: continue
+                    d = month_date(cells[0] if cells else '')
+                    if not d or not centre: continue
                     meta = CENTRES[centre.lower()]
                     counts = ['20s','30s','40s'] if section == 'Hosiery Combed' or centre == 'Amritsar' else ['20s','30s','40s','60s','80s']
-                    # Official table layout is Month, value, change, growth repeated for each count.
                     for i, count in enumerate(counts):
                         pos = 1 + i*3
                         if pos < len(cells):
@@ -92,82 +80,66 @@ def classify(text):
     return None, None
 
 def parse_ntc_pdf(rows, region, date, url):
-    data = get(url)
-    with pdfplumber.open(io.BytesIO(data)) as pdf:
+    with pdfplumber.open(io.BytesIO(get(url))) as pdf:
         for page in pdf.pages:
-            tables = page.extract_tables() or []
-            for table in tables:
+            for table in page.extract_tables() or []:
                 for r in table:
                     cells = [clean(x) for x in (r or [])]
                     if len(cells) < 3: continue
                     line = ' | '.join(cells)
                     if 'Variety Name' in line or 'RateType' in line: continue
                     price = None
-                    rate_idx = None
                     for i, c in enumerate(cells):
-                        m = re.search(r'(?<!\d)(\d{2,5}(?:\.\d{1,2})?)(?!\d)', c)
-                        if m and ('rate' in line.lower() or i >= 2):
+                        for m in re.finditer(r'(?<!\d)(\d{2,5}(?:\.\d{1,2})?)(?!\d)', c):
                             v = num(m.group(1))
-                            if v and 20 < v < 10000:
-                                price, rate_idx = v, i
+                            if v and 20 < v < 10000: price = v
                     if price is None: continue
                     variety = cells[1] if len(cells) > 1 else cells[0]
-                    if not variety or re.fullmatch(r'\d+', variety): continue
-                    fiber, product = classify(variety)
+                    fiber, product = classify(variety or line)
                     if not fiber: fiber, product = classify(line)
                     if not fiber: continue
                     cm = re.search(r'(\d{1,3})\s*S\b', variety, re.I)
-                    count = (cm.group(1)+'s') if cm else '—'
+                    count = cm.group(1)+'s' if cm else '—'
                     blend = 'Blended' if re.search(r'PC|PV|BLEND|\d{2}:\d{2}', variety, re.I) else '—'
                     mill = cells[2] if len(cells) > 2 else 'NTC'
                     add(rows, date=date, year=int(date[:4]), month=int(date[5:7]), state='Not specified by source', district=region, centre=region, fiber=fiber, count=count, blend=blend, product=product, yarn_name=variety, mill_name=mill, price_inr_kg=price, frequency='Official NTC price list', source='National Textile Corporation', source_short='NTC', source_url=url, region=region)
 
 def ntc(rows):
+    from urllib.parse import urljoin
     for region, archive in NTC_ARCHIVES:
         try:
-            html = get(archive).decode('utf-8', 'ignore')
-            soup = BeautifulSoup(html, 'html.parser')
-            candidates = []
+            soup = BeautifulSoup(get(archive).decode('utf-8', 'ignore'), 'html.parser'); candidates=[]
             for tr in soup.find_all('tr'):
-                txt = clean(tr.get_text(' ', strip=True))
+                txt=clean(tr.get_text(' ', strip=True))
                 if not re.search(r'YARN.*PRICE.*LIST', txt, re.I): continue
-                d = iso_date(txt)
-                if not d or d < '2025-04-01': continue
-                links = []
+                d=iso_date(txt)
+                if not d or d<'2025-04-01': continue
                 for a in tr.find_all('a'):
-                    for attr in ('href','data-href','onclick'):
-                        v = a.get(attr)
-                        if v: links.append(v)
-                for v in re.findall(r'[\"\']([^\"\']+\.pdf[^\"\']*)[\"\']', str(tr), re.I): links.append(v)
-                for v in links:
-                    if '.pdf' in v.lower():
-                        from urllib.parse import urljoin
-                        candidates.append((d, urljoin(archive, v)))
-                        break
-            # latest official list in each month
-            picked = {}
-            for d,u in sorted(candidates, reverse=True): picked.setdefault(d[:7], (d,u))
+                    vals=[a.get('href'),a.get('data-href'),a.get('onclick')]
+                    for v in vals:
+                        if v and '.pdf' in v.lower(): candidates.append((d,urljoin(archive,v))); break
+            picked={}
+            for d,u in sorted(candidates, reverse=True): picked.setdefault(d[:7],(d,u))
             for d,u in picked.values():
-                try: parse_ntc_pdf(rows, region, d, u)
-                except Exception as e: print('NTC PDF failed', region, d, e)
-        except Exception as e: print('NTC archive failed', region, e)
+                try: parse_ntc_pdf(rows,region,d,u)
+                except Exception as e: print('NTC PDF failed',region,d,e)
+        except Exception as e: print('NTC archive failed',region,e)
 
 def main():
-    rows = []
+    rows=[]
     try: txc_historical(rows)
-    except Exception as e: print('TXC historical failed', e)
-    # Keep weekly TXC sheets optional; NTC is the post-Mar-2025 continuation.
+    except Exception as e: print('TXC historical failed',e)
     try: ntc(rows)
-    except Exception as e: print('NTC failed', e)
+    except Exception as e: print('NTC failed',e)
     seen=set(); clean_rows=[]
     for r in rows:
-        k=tuple(sorted(r.items()))
+        k=json.dumps(r,sort_keys=True)
         if k not in seen: seen.add(k); clean_rows.append(r)
-    clean_rows.sort(key=lambda r:(r['date'], r.get('source_short',''), r.get('fiber',''), str(r.get('count',''))))
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    payload = {'source':'official-textile-sources','generated_at':datetime.utcnow().isoformat()+'Z','records':clean_rows,'count':len(clean_rows),'coverage':{'minimum_date':MIN_DATE,'txc_historical':'January 2021 to March 2025','ntc_from':'April 2025','latest_source_record':clean_rows[-1]['date'] if clean_rows else None,'note':'Dataset is generated outside the Vercel request path from official TXC and NTC publications.'}}
-    OUT.write_text(json.dumps(payload, ensure_ascii=False, separators=(',',':')), encoding='utf-8')
-    print('GENERATED', len(clean_rows), 'records; latest', payload['coverage']['latest_source_record'])
-    if len(clean_rows) == 0: raise SystemExit('SCRAPER PRODUCED ZERO RECORDS')
+    clean_rows.sort(key=lambda r:(r['date'],r.get('source_short',''),r.get('fiber',''),str(r.get('count',''))))
+    OUT.parent.mkdir(parents=True,exist_ok=True)
+    payload={'source':'official-textile-sources','generated_at':datetime.utcnow().isoformat()+'Z','records':clean_rows,'count':len(clean_rows),'coverage':{'minimum_date':MIN_DATE,'txc_historical':'January 2021 to March 2025','ntc_from':'April 2025','latest_source_record':clean_rows[-1]['date'] if clean_rows else None,'note':'Generated outside the Vercel request path from official TXC and NTC publications.'}}
+    OUT.write_text(json.dumps(payload,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+    print('GENERATED',len(clean_rows),'records; latest',payload['coverage']['latest_source_record'])
+    if len(clean_rows)==0: raise SystemExit('SCRAPER PRODUCED ZERO RECORDS')
 
-if __name__ == '__main__': main()
+if __name__=='__main__': main()
