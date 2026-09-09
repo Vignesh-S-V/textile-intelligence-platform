@@ -7,7 +7,7 @@ on:
       - 'scripts/scrape_yarn.py'
       - 'package.json'
   schedule:
-    - cron: '17 2 * * 1'
+    - cron: '17 2 * * *'
   workflow_dispatch:
 
 permissions:
