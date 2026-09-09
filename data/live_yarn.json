@@ -1,0 +1,7 @@
+{
+  "source": "public-market-reports",
+  "generated_at": null,
+  "count": 0,
+  "records": [],
+  "note": "Only explicitly published yarn price indications are stored. No interpolation, previous-price copying, or dummy records."
+}
