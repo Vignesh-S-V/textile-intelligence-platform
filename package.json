@@ -1,6 +1,9 @@
 {
-  "name": "cotton-price-vercel",
-  "version": "1.0.0",
+  "name": "textile-intelligence-platform",
+  "version": "2.0.0",
   "private": true,
-  "description": "Live India Cotton Market Price dashboard. Frontend is static (GitHub Pages-style), backend is a Vercel Serverless Function that holds the free Govt of India API key as an environment variable."
+  "description": "Textile Intelligence Platform with official yarn price history and live market data.",
+  "dependencies": {
+    "pdf-parse": "^1.1.1"
+  }
 }
