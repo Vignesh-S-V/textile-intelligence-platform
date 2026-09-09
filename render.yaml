@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: textile-intelligence-platform
+    runtime: node
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    healthCheckPath: /health
