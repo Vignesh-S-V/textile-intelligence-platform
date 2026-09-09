@@ -1,11 +1,11 @@
 import express from 'express';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = join(__filename, '..');
+const __dirname = dirname(__filename);
 const PORT = process.env.PORT || 10000;
 
 app.disable('x-powered-by');
@@ -36,9 +36,7 @@ app.get('/api/yarn', (req, res) => {
     });
   } catch (error) {
     console.error('Yarn dataset load failed:', error);
-    res.status(500).json({
-      error: 'Official yarn dataset could not be loaded'
-    });
+    res.status(500).json({ error: 'Official yarn dataset could not be loaded' });
   }
 });
 
