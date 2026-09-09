@@ -6,6 +6,7 @@ on:
     paths:
       - 'scripts/scrape_yarn.py'
       - 'scripts/scrape_association_prices.py'
+      - 'scripts/scrape_sima_ereviews.py'
       - 'package.json'
       - '.github/workflows/update-yarn-data.yml'
   schedule:
@@ -39,6 +40,9 @@ jobs:
 
       - name: Scrape official TXC, NTC and NHDC publications
         run: python scripts/scrape_yarn.py
+
+      - name: Discover and parse SIMA e-review PDFs with pdfplumber
+        run: python scripts/scrape_sima_ereviews.py
 
       - name: Augment gaps from public SIMA and TEA association publications
         run: python scripts/scrape_association_prices.py
