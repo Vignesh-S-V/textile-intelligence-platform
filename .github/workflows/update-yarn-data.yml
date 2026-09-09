@@ -27,31 +27,71 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: Install scraper dependencies
         run: python -m pip install --upgrade pip requests beautifulsoup4 pdfplumber
+
       - name: Scrape official TXC, NTC and NHDC publications
         run: python scripts/scrape_yarn.py
+
+      - name: Normalize Yarn Type and Spinning fields
+        run: |
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+          p=Path('data/yarn.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          for r in d.get('records',[]):
+              text=' '.join(str(r.get(k) or '') for k in ('yarn_name','product','blend')).upper()
+              if not r.get('yarn_type'):
+                  if 'HANK' in text: r['yarn_type']='Hank Yarn'
+                  elif 'HOSE' in text: r['yarn_type']='Hosiery Yarn'
+                  elif 'COMBED' in text: r['yarn_type']='Combed Yarn'
+                  elif 'CARD' in text or 'KARDED' in text: r['yarn_type']='Carded Yarn'
+                  elif 'BLENDED' in text or re.search(r'\b(?:PC|PV|CPC)\b',text): r['yarn_type']='Blended Yarn'
+                  else: r['yarn_type']=r.get('product') or 'Yarn'
+              if not r.get('spinning'):
+                  spinning='Not specified by source'
+                  for needle,value in [('TFO','TFO'),('OPEN END','Open End'),('OPEN-END','Open End'),('ROTOR','Rotor'),('AIR JET','Air Jet'),('COMPACT','Compact'),('RING SPUN','Ring Spun'),('RING-SPUN','Ring Spun'),('RING','Ring')]:
+                      if needle in text:
+                          spinning=value; break
+                  r['spinning']=spinning
+              r['year']=r.get('year') or int(str(r['date'])[:4])
+              r['month']=r.get('month') or int(str(r['date'])[5:7])
+          p.write_text(json.dumps(d,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+          print('Normalized',len(d.get('records',[])),'records')
+          PY
+
+      - name: Validate required dashboard fields
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('data/yarn.json',encoding='utf-8'))
+          rows=d.get('records',[])
+          assert rows, 'SCRAPER PRODUCED ZERO RECORDS'
+          assert all(r.get('date') and r.get('price_inr_kg') is not None for r in rows), 'Invalid price/date record'
+          assert all(r.get('yarn_type') for r in rows), 'Yarn Type missing'
+          assert all(r.get('spinning') for r in rows), 'Spinning field missing'
+          print('VALIDATION OK:',len(rows),'records; latest=',max(r['date'] for r in rows))
+          print('YARN TYPES:',sorted(set(r['yarn_type'] for r in rows)))
+          print('SPINNING:',sorted(set(r['spinning'] for r in rows)))
+          PY
+
       - name: Commit refreshed dataset
         run: |
-          set -e
           git config user.name 'textile-data-bot'
           git config user.email 'textile-data-bot@users.noreply.github.com'
           git add data/yarn.json
-          if git diff --cached --quiet; then echo 'No dataset changes.'; exit 0; fi
-          git commit -m 'chore(data): refresh official yarn prices'
-          for attempt in 1 2 3; do
-            git fetch origin main
-            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
-            git rebase --abort || true
-            git reset --hard origin/main
-            python scripts/scrape_yarn.py
-            git add data/yarn.json
-            if git diff --cached --quiet; then exit 0; fi
+          if git diff --cached --quiet; then
+            echo 'No dataset changes.'
+          else
             git commit -m 'chore(data): refresh official yarn prices'
-          done
-          echo 'Unable to push refreshed dataset after 3 attempts.'
-          exit 1
+            git fetch origin main
+            git rebase origin/main
+            git push origin HEAD:main
+          fi
