@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/scrape_yarn.py'
+      - 'scripts/scrape_association_prices.py'
       - 'package.json'
       - '.github/workflows/update-yarn-data.yml'
   schedule:
@@ -21,7 +22,7 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,6 +39,9 @@ jobs:
 
       - name: Scrape official TXC, NTC and NHDC publications
         run: python scripts/scrape_yarn.py
+
+      - name: Augment gaps from public SIMA and TEA association publications
+        run: python scripts/scrape_association_prices.py
 
       - name: Normalize Yarn Type and Spinning fields
         run: |
@@ -80,6 +84,8 @@ jobs:
           print('VALIDATION OK:',len(rows),'records; latest=',max(r['date'] for r in rows))
           print('YARN TYPES:',sorted(set(r['yarn_type'] for r in rows)))
           print('SPINNING:',sorted(set(r['spinning'] for r in rows)))
+          print('SOURCES:',sorted(set(r.get('source_short') for r in rows)))
+          print('ASSOCIATION RECORDS:',sum(1 for r in rows if r.get('source_tier')=='association_market'))
           PY
 
       - name: Commit refreshed dataset
@@ -90,7 +96,7 @@ jobs:
           if git diff --cached --quiet; then
             echo 'No dataset changes.'
           else
-            git commit -m 'chore(data): refresh official yarn prices'
+            git commit -m 'chore(data): refresh official and association yarn prices'
             git fetch origin main
             git rebase origin/main
             git push origin HEAD:main
