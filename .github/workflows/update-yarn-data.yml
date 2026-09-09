@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: official-yarn-data-refresh
+  cancel-in-progress: false
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
@@ -31,7 +35,7 @@ jobs:
       - name: Install scraper dependencies
         run: python -m pip install --upgrade pip requests beautifulsoup4 pdfplumber
 
-      - name: Scrape official TXC and NTC publications
+      - name: Scrape official TXC, NTC and NHDC publications
         run: python scripts/scrape_yarn.py
 
       - name: Commit refreshed dataset
@@ -43,5 +47,7 @@ jobs:
             echo 'No dataset changes.'
           else
             git commit -m 'chore(data): refresh official yarn prices'
-            git push
+            git fetch origin main
+            git rebase origin/main
+            git push origin HEAD:main
           fi
