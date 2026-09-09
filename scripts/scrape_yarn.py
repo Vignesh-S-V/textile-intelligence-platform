@@ -1,6 +1,6 @@
 # Scheduled official-data scraper. Vercel serves the generated data/yarn.json; it does not scrape PDFs during a user request.
-import io, json, re, time
-from datetime import datetime
+import io, json, re
+from datetime import datetime, timezone
 from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
@@ -75,7 +75,15 @@ def classify(text):
     t = clean(text).upper()
     if 'POLYESTER' in t and ('VISCOSE' in t or re.search(r'\bPV\b', t)): return 'Polyester/Viscose', 'Polyester/Viscose Blended Yarn'
     if ('POLYESTER' in t and 'COTTON' in t) or re.search(r'\bPC\b', t): return 'Polyester/Cotton', 'Polyester/Cotton Blended Yarn'
-    for word, name in [('VISCOSE','Viscose'),('POLYESTER','Polyester'),('NYLON','Nylon'),('ACRYLIC','Acrylic'),('WOOL','Wool'),('LINEN','Linen'),('HEMP','Hemp'),('SILK','Silk'),('MODAL','Modal'),('LYOCELL','Lyocell'),('COTTON','Cotton')]:
+    if 'POLY' in t and 'MODAL' in t: return 'Modal', 'Modal Blended Yarn'
+    for word, name in [
+        ('RAYON','Rayon'),('VISCOSE','Viscose'),('POLYESTER','Polyester'),
+        ('NYLON','Nylon'),('ACRYLIC','Acrylic'),('WOOL','Wool'),
+        ('LINEN','Linen'),('HEMP','Hemp'),('SILK','Silk'),
+        ('MODAL','Modal'),('LYOCELL','Lyocell'),('TENCEL','Lyocell'),
+        ('ACETATE','Acetate'),('SPANDEX','Spandex'),('ELASTANE','Spandex'),
+        ('COTTON','Cotton')
+    ]:
         if word in t: return name, name + ' Yarn'
     return None, None
 
@@ -89,7 +97,7 @@ def parse_ntc_pdf(rows, region, date, url):
                     line = ' | '.join(cells)
                     if 'Variety Name' in line or 'RateType' in line: continue
                     price = None
-                    for i, c in enumerate(cells):
+                    for c in cells:
                         for m in re.finditer(r'(?<!\d)(\d{2,5}(?:\.\d{1,2})?)(?!\d)', c):
                             v = num(m.group(1))
                             if v and 20 < v < 10000: price = v
@@ -137,9 +145,28 @@ def main():
         if k not in seen: seen.add(k); clean_rows.append(r)
     clean_rows.sort(key=lambda r:(r['date'],r.get('source_short',''),r.get('fiber',''),str(r.get('count',''))))
     OUT.parent.mkdir(parents=True,exist_ok=True)
-    payload={'source':'official-textile-sources','generated_at':datetime.utcnow().isoformat()+'Z','records':clean_rows,'count':len(clean_rows),'coverage':{'minimum_date':MIN_DATE,'txc_historical':'January 2021 to March 2025','ntc_from':'April 2025','latest_source_record':clean_rows[-1]['date'] if clean_rows else None,'note':'Generated outside the Vercel request path from official TXC and NTC publications.'}}
+    latest = clean_rows[-1]['date'] if clean_rows else None
+    now = datetime.now(timezone.utc)
+    current_month = now.strftime('%Y-%m')
+    current_available = bool(latest and latest.startswith(current_month))
+    payload={
+        'source':'official-textile-sources',
+        'generated_at':now.isoformat().replace('+00:00','Z'),
+        'records':clean_rows,
+        'count':len(clean_rows),
+        'coverage':{
+            'minimum_date':MIN_DATE,
+            'txc_historical':'January 2021 to March 2025',
+            'ntc_from':'April 2025',
+            'latest_source_record':latest,
+            'current_month':current_month,
+            'current_month_available':current_available,
+            'current_month_note':('Official source publication found for the current month.' if current_available else 'No official TXC/NTC yarn price publication dated in the current month was available at scrape time.'),
+            'note':'Generated outside the Vercel request path from official TXC and NTC publications.'
+        }
+    }
     OUT.write_text(json.dumps(payload,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
-    print('GENERATED',len(clean_rows),'records; latest',payload['coverage']['latest_source_record'])
+    print('GENERATED',len(clean_rows),'records; latest',latest,'current_month',current_month,'available',current_available)
     if len(clean_rows)==0: raise SystemExit('SCRAPER PRODUCED ZERO RECORDS')
 
 if __name__=='__main__': main()
