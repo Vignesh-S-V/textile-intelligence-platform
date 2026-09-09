@@ -3,6 +3,7 @@
   const $=id=>document.getElementById(id);
   const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:NaN;
   const clamp=(v,lo=0)=>Math.max(lo,v);
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const mape=(actual,pred)=>{const e=[];for(let i=0;i<actual.length;i++)if(Number.isFinite(actual[i])&&actual[i]!==0&&Number.isFinite(pred[i]))e.push(Math.abs((actual[i]-pred[i])/actual[i])*100);return e.length?mean(e):Infinity};
   const monthlySeries=rows=>{const m={};rows.forEach(r=>{const k=String(r.date||'').slice(0,7),v=Number(r.price_inr_kg);if(/^\d{4}-\d{2}$/.test(k)&&Number.isFinite(v))(m[k]??=[]).push(v)});return Object.keys(m).sort().map(k=>({month:k,value:mean(m[k])}));};
   const linear=(y,h)=>{const n=y.length;if(n<2)return Array(h).fill(y.at(-1));const xb=(n-1)/2,yb=mean(y),b=y.reduce((s,v,i)=>s+(i-xb)*(v-yb),0)/(n*(n*n-1)/12),a=yb-b*xb;return Array.from({length:h},(_,j)=>clamp(a+b*(n+j)))};
@@ -16,6 +17,29 @@
   const backtest=(y,fn,h)=>{const minTrain=Math.max(6,Math.min(24,Math.floor(y.length*.55)));const actual=[],pred=[];for(let end=minTrain;end<y.length;end+=Math.max(1,Math.min(h,3))){const take=Math.min(h,y.length-end),p=fn(y.slice(0,end),take);actual.push(...y.slice(end,end+take));pred.push(...p.slice(0,take))}return mape(actual,pred)};
   const choose=(y,h)=>{let best=null;for(const [name,fn] of candidates(y,h)){const score=backtest(y,fn,h);if(score<Infinity&&(!best||score<best.mape))best={name,fn,mape:score}}return best||{name:'Recent mean',fn:recentMean,mape:Infinity};};
   const futureMonth=k=>{const [y,m]=k.split('-').map(Number);const d=new Date(Date.UTC(y,m-1,1));d.setUTCMonth(d.getUTCMonth()+1);return d.toISOString().slice(0,7)};
+
+  async function buildMarket(){
+    if($('live-market-card'))return;
+    const anchor=document.querySelector('.chart');if(!anchor)return;
+    const card=document.createElement('section');card.className='card';card.id='live-market-card';
+    card.innerHTML='<div class="row"><h2>Latest Yarn Market Indication</h2><div id="live-market-status" class="status">Loading market reports...</div></div><div class="note">🟡 MARKET INDICATOR — public trade/news reports only. This is not a real-time tradable quote and is never substituted for missing data.</div><div class="tablewrap"><table class="table"><thead><tr><th>Published</th><th>Market</th><th>Fiber</th><th>Yarn Type</th><th>Count</th><th>Price ₹/kg</th><th>GST</th><th>Source</th></tr></thead><tbody id="live-market-body"><tr><td colspan="8" class="empty">Loading...</td></tr></tbody></table></div>';
+    anchor.parentNode.insertBefore(card,anchor.nextSibling);
+    try{
+      const q=await fetch('/api/live-yarn?refresh='+Date.now(),{cache:'no-store'}),j=await q.json();
+      if(!q.ok)throw Error(j.error||'API error');
+      const rows=Array.isArray(j.records)?j.records:[], latest=j.latest_source_record;
+      const latestRows=latest?rows.filter(r=>r.date===latest):[];
+      const status=$('live-market-status');
+      if(!latestRows.length){status.textContent='No published market-report price available';status.className='status warn';$('live-market-body').innerHTML='<tr><td colspan="8" class="empty">No verified market-report yarn price is currently available. No value has been invented or copied forward.</td></tr>';return;}
+      status.textContent=`Latest source report: ${latest} • ${latestRows.length} observations`;
+      status.className='status ok';
+      $('live-market-body').innerHTML=latestRows.map(r=>`<tr><td>${esc(r.date)}</td><td>${esc(r.market)}</td><td>${esc(r.fiber)}</td><td>${esc(r.yarn_type)}</td><td>${esc(r.count)}</td><td>₹${Number(r.price_min_inr_kg).toFixed(2)} – ₹${Number(r.price_max_inr_kg).toFixed(2)}</td><td>${r.gst_included===false?'Extra':r.gst_included===true?'Included':'Not stated'}</td><td><a href="${esc(r.source_url)}" target="_blank" rel="noopener">${esc(r.source)}</a></td></tr>`).join('');
+    }catch(e){
+      $('live-market-status').textContent='Unable to load market reports: '+e.message;$('live-market-status').className='status err';
+      $('live-market-body').innerHTML='<tr><td colspan="8" class="empty">Market-report data could not be loaded.</td></tr>';
+    }
+  }
+
   function build(){if($('forecast-card'))return;const hist=document.querySelector('.chart');if(!hist)return;const card=document.createElement('section');card.className='card';card.id='forecast-card';card.innerHTML=`<div class="row"><h2>Yarn Price Forecast</h2><div id="forecast-status" class="status">Select forecast period</div></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px"><button type="button" class="refresh forecast-option" data-h="3">3 Months</button><button type="button" class="refresh forecast-option" data-h="6">6 Months</button><button type="button" class="refresh forecast-option" data-h="12">1 Year</button></div><div class="chart"><canvas id="forecast-chart"></canvas></div><div id="forecast-note" class="note"></div></div>`;hist.parentNode.insertBefore(card,hist.nextSibling);card.querySelectorAll('.forecast-option').forEach(b=>b.onclick=()=>{state.horizon=Number(b.dataset.h);render()});state.ready=true;render()}
   function render(){if(!state.ready||typeof filtered!=='function')return;const rows=filtered(),series=monthlySeries(rows),status=$('forecast-status'),note=$('forecast-note');if(state.chart){state.chart.destroy();state.chart=null}document.querySelectorAll('.forecast-option').forEach(b=>b.style.opacity=Number(b.dataset.h)===state.horizon?'1':'.65');if(series.length<6){status.textContent='Insufficient verified monthly history';status.className='status warn';note.textContent='Forecast withheld because fewer than 6 monthly observations are available for this exact filter selection.';return}
     const currentYear=String(new Date().getFullYear()),current=series.filter(x=>x.month.startsWith(currentYear));
@@ -26,5 +50,6 @@
     note.textContent=`Chart shows current-year actual monthly averages plus ${state.horizon===12?'1 year':state.horizon+' months'} forecast only. Model selected by rolling backtesting on the exact active filters. 95% is a validation target, not a fabricated guarantee; if validation is below target it is reported honestly.`;
     state.chart=new Chart($('forecast-chart'),{type:'line',data:{labels,datasets:[{label:'Current Year Average ₹/kg',data:actual,borderWidth:2,pointRadius:3,tension:.25},{label:'Forecast ₹/kg',data:forecast,borderWidth:2,borderDash:[7,4],pointRadius:3,tension:.25}]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{tooltip:{callbacks:{label:c=>`${c.dataset.label}: ₹${Number(c.parsed.y).toFixed(2)}/kg`}}},scales:{x:{ticks:{maxTicksLimit:18}},y:{title:{display:true,text:'Price (₹/kg)'},beginAtZero:false}}}});
   }
-  document.addEventListener('change',e=>{if(e.target?.closest?.('#filters'))setTimeout(()=>{build();render()},0)});const boot=setInterval(()=>{if(typeof filtered==='function'&&document.querySelector('.chart')){clearInterval(boot);build()}},100);
+  document.addEventListener('change',e=>{if(e.target?.closest?.('#filters'))setTimeout(()=>{build();render()},0)});
+  const boot=setInterval(()=>{if(typeof filtered==='function'&&document.querySelector('.chart')){clearInterval(boot);build();buildMarket()}},100);
 })();

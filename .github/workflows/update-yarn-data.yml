@@ -1,4 +1,4 @@
-name: Update official yarn data
+name: Update yarn intelligence data
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
       - 'scripts/scrape_yarn.py'
       - 'scripts/scrape_association_prices.py'
       - 'scripts/scrape_sima_ereviews.py'
+      - 'scripts/scrape_market_reports.py'
       - 'package.json'
       - '.github/workflows/update-yarn-data.yml'
   schedule:
@@ -17,7 +18,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: official-yarn-data-refresh
+  group: yarn-intelligence-refresh
   cancel-in-progress: false
 
 jobs:
@@ -29,24 +30,20 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Install scraper dependencies
         run: python -m pip install --upgrade pip requests beautifulsoup4 pdfplumber
-
       - name: Scrape official TXC, NTC and NHDC publications
         run: python scripts/scrape_yarn.py
-
       - name: Discover and parse SIMA e-review PDFs with pdfplumber
         run: python scripts/scrape_sima_ereviews.py
-
       - name: Augment gaps from public SIMA and TEA association publications
         run: python scripts/scrape_association_prices.py
-
+      - name: Scrape public yarn market reports
+        run: python scripts/scrape_market_reports.py
       - name: Normalize Yarn Type and Spinning fields
         run: |
           python - <<'PY'
@@ -66,42 +63,46 @@ jobs:
               if not r.get('spinning'):
                   spinning='Not specified by source'
                   for needle,value in [('TFO','TFO'),('OPEN END','Open End'),('OPEN-END','Open End'),('ROTOR','Rotor'),('AIR JET','Air Jet'),('COMPACT','Compact'),('RING SPUN','Ring Spun'),('RING-SPUN','Ring Spun'),('RING','Ring')]:
-                      if needle in text:
-                          spinning=value; break
+                      if needle in text: spinning=value; break
                   r['spinning']=spinning
               r['year']=r.get('year') or int(str(r['date'])[:4])
               r['month']=r.get('month') or int(str(r['date'])[5:7])
           p.write_text(json.dumps(d,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
           print('Normalized',len(d.get('records',[])),'records')
           PY
-
-      - name: Validate required dashboard fields
+      - name: Validate official dataset
         run: |
           python - <<'PY'
           import json
           d=json.load(open('data/yarn.json',encoding='utf-8'))
           rows=d.get('records',[])
-          assert rows, 'SCRAPER PRODUCED ZERO RECORDS'
-          assert all(r.get('date') and r.get('price_inr_kg') is not None for r in rows), 'Invalid price/date record'
+          assert rows, 'SCRAPER PRODUCED ZERO OFFICIAL RECORDS'
+          assert all(r.get('date') and r.get('price_inr_kg') is not None for r in rows), 'Invalid official price/date record'
           assert all(r.get('yarn_type') for r in rows), 'Yarn Type missing'
           assert all(r.get('spinning') for r in rows), 'Spinning field missing'
-          print('VALIDATION OK:',len(rows),'records; latest=',max(r['date'] for r in rows))
-          print('YARN TYPES:',sorted(set(r['yarn_type'] for r in rows)))
-          print('SPINNING:',sorted(set(r['spinning'] for r in rows)))
-          print('SOURCES:',sorted(set(r.get('source_short') for r in rows)))
-          print('ASSOCIATION RECORDS:',sum(1 for r in rows if r.get('source_tier')=='association_market'))
+          print('OFFICIAL VALIDATION OK:',len(rows),'records; latest=',max(r['date'] for r in rows))
           PY
-
-      - name: Commit refreshed dataset
+      - name: Validate market-report dataset
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('data/live_yarn.json',encoding='utf-8'))
+          rows=d.get('records',[])
+          assert isinstance(rows,list), 'Market records must be a list'
+          keys=set()
+          for r in rows:
+              assert r.get('date') and r.get('source_url'), 'Market record missing date/source URL'
+              assert r.get('source_tier')=='MARKET_INDICATOR', 'Market record has wrong source tier'
+              assert r.get('price_min_inr_kg') is not None and r.get('price_max_inr_kg') is not None, 'Market price missing'
+              assert r['price_min_inr_kg'] <= r['price_max_inr_kg'], 'Invalid market price range'
+              key=(r.get('source_short'),r.get('source_url'),r.get('date'),r.get('market'),r.get('count'),r.get('yarn_type'),r.get('price_min_inr_kg'),r.get('price_max_inr_kg'))
+              assert key not in keys, 'DUPLICATE MARKET RECORD DETECTED'
+              keys.add(key)
+          print('MARKET VALIDATION OK:',len(rows),'records; latest=',max((r['date'] for r in rows), default='none'))
+          PY
+      - name: Commit refreshed datasets
         run: |
           git config user.name 'textile-data-bot'
           git config user.email 'textile-data-bot@users.noreply.github.com'
-          git add data/yarn.json
-          if git diff --cached --quiet; then
-            echo 'No dataset changes.'
-          else
-            git commit -m 'chore(data): refresh official and association yarn prices'
-            git fetch origin main
-            git rebase origin/main
-            git push origin HEAD:main
-          fi
+          git add data/yarn.json data/live_yarn.json
+          if git diff --cached --quiet; then echo 'No dataset changes.'; else git commit -m 'chore(data): refresh official and market yarn prices'; git fetch origin main; git rebase origin/main; git push origin HEAD:main; fi
