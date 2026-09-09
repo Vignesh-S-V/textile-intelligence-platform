@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "description": "Textile Intelligence Platform with official yarn price history and live market data.",
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
+    "express": "^5.1.0",
     "pdf-parse": "^1.1.1"
   }
 }
