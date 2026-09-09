@@ -1,0 +1,53 @@
+name: Install forecast UI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'forecast.js'
+      - '.github/workflows/install-forecast-ui.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add forecast script without changing existing UI logic
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          tag='<script src="/forecast.js"></script>'
+          if tag not in s:
+              marker='</body>'
+              if marker not in s:
+                  raise SystemExit('index.html does not contain </body>')
+              s=s.replace(marker,tag+marker,1)
+              p.write_text(s,encoding='utf-8')
+              print('Forecast script installed.')
+          else:
+              print('Forecast script already installed.')
+          PY
+
+      - name: Commit UI hook only
+        run: |
+          git config user.name 'textile-forecast-bot'
+          git config user.email 'textile-forecast-bot@users.noreply.github.com'
+          git add index.html
+          if git diff --cached --quiet; then
+            echo 'No index change required.'
+          else
+            git commit -m 'feat(ui): enable filter-aware yarn price forecast'
+            git fetch origin main
+            git rebase origin/main
+            git push origin HEAD:main
+          fi
