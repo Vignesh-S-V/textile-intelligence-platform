@@ -71,11 +71,21 @@ def txc_historical(rows):
                             if p is not None:
                                 add(rows, date=d, year=int(d[:4]), month=int(d[5:7]), state=meta[1], district=meta[2], centre=meta[0], fiber='Cotton', count=count, blend=section, product='Cotton Yarn', price_inr_kg=p, frequency='Monthly', source='Office of the Textile Commissioner', source_short='TXC', source_url=TXC_HIST)
 
-def classify(text):
+def classify(text, section=''):
     t = clean(text).upper()
-    if 'POLYESTER' in t and ('VISCOSE' in t or re.search(r'\bPV\b', t)): return 'Polyester/Viscose', 'Polyester/Viscose Blended Yarn'
-    if ('POLYESTER' in t and 'COTTON' in t) or re.search(r'\bPC\b', t): return 'Polyester/Cotton', 'Polyester/Cotton Blended Yarn'
-    if 'POLY' in t and 'MODAL' in t: return 'Modal', 'Modal Blended Yarn'
+    s = clean(section).upper()
+    # NTC publishes section headings separately from Variety Name. Keep the
+    # section context so short names such as "24s PSF" are not lost.
+    if 'POLYESTER STAPLE FIBRE' in s or re.search(r'\bPSF\b', t):
+        return 'Polyester', 'Polyester Yarn'
+    if 'POLYESTER-VISCOSE' in s or re.search(r'\bPV\b', t) or ('POLYESTER' in t and 'VISCOSE' in t):
+        return 'Polyester/Viscose', 'Polyester/Viscose Blended Yarn'
+    if 'POLYESTER-COTTON' in s or ('POLYESTER' in t and 'COTTON' in t) or re.search(r'\b(?:PC|CPC)\b', t):
+        return 'Polyester/Cotton', 'Polyester/Cotton Blended Yarn'
+    if 'POLY-MODAL' in s or ('POLY' in t and 'MODAL' in t):
+        return 'Modal', 'Modal Blended Yarn'
+    if 'HANK YARN' in s:
+        return 'Cotton', 'Cotton Yarn'
     for word, name in [
         ('RAYON','Rayon'),('VISCOSE','Viscose'),('POLYESTER','Polyester'),
         ('NYLON','Nylon'),('ACRYLIC','Acrylic'),('WOOL','Wool'),
@@ -89,12 +99,21 @@ def classify(text):
 
 def parse_ntc_pdf(rows, region, date, url):
     with pdfplumber.open(io.BytesIO(get(url))) as pdf:
+        section = ''
+        section_names = ('HANK YARN', 'POLYESTER STAPLE FIBRE', 'POLYESTER-COTTON', 'POLYESTER-VISCOSE', 'POLY-MODAL')
         for page in pdf.pages:
             for table in page.extract_tables() or []:
                 for r in table:
                     cells = [clean(x) for x in (r or [])]
-                    if len(cells) < 3: continue
+                    if not cells: continue
                     line = ' | '.join(cells)
+                    upper_line = line.upper()
+                    for name in section_names:
+                        if name in upper_line and not any(re.search(r'\d', c) for c in cells[:2]):
+                            section = name
+                            break
+                    if section and upper_line.strip() in section_names:
+                        continue
                     if 'Variety Name' in line or 'RateType' in line: continue
                     price = None
                     for c in cells:
@@ -103,12 +122,18 @@ def parse_ntc_pdf(rows, region, date, url):
                             if v and 20 < v < 10000: price = v
                     if price is None: continue
                     variety = cells[1] if len(cells) > 1 else cells[0]
-                    fiber, product = classify(variety or line)
-                    if not fiber: fiber, product = classify(line)
+                    fiber, product = classify(variety, section)
+                    if not fiber: fiber, product = classify(line, section)
                     if not fiber: continue
                     cm = re.search(r'(\d{1,3})\s*S\b', variety, re.I)
                     count = cm.group(1)+'s' if cm else '—'
-                    blend = 'Blended' if re.search(r'PC|PV|BLEND|\d{2}:\d{2}', variety, re.I) else '—'
+                    ratio = re.search(r'\b(\d{2}:\d{2})\b', variety)
+                    if ratio:
+                        blend = ratio.group(1)
+                    elif fiber in {'Polyester/Cotton','Polyester/Viscose','Modal'} or re.search(r'\b(?:PC|PV|CPC|BLEND)\b', variety, re.I):
+                        blend = 'Blended'
+                    else:
+                        blend = '—'
                     mill = cells[2] if len(cells) > 2 else 'NTC'
                     add(rows, date=date, year=int(date[:4]), month=int(date[5:7]), state='Not specified by source', district=region, centre=region, fiber=fiber, count=count, blend=blend, product=product, yarn_name=variety, mill_name=mill, price_inr_kg=price, frequency='Official NTC price list', source='National Textile Corporation', source_short='NTC', source_url=url, region=region)
 
