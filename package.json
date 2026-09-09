@@ -1,7 +1,8 @@
 {
   "name": "textile-intelligence-platform",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
+  "type": "module",
   "description": "Textile Intelligence Platform with official yarn price history and live market data.",
   "dependencies": {
     "pdf-parse": "^1.1.1"
