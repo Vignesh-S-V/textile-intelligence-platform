@@ -1,0 +1,5 @@
+{
+  "version": "1.0",
+  "description": "Optional normalized operational snapshot. Keep this file empty until connected to a real ERP/MES/WMS ETL pipeline.",
+  "records": []
+}

@@ -1,14 +1,10 @@
 {
-  "name": "textile-intelligence-platform",
-  "version": "2.1.0",
-  "private": true,
-  "type": "module",
-  "description": "Textile Intelligence Platform with official yarn price history and live market data.",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "express": "^5.1.0",
-    "pdf-parse": "^1.1.1"
-  }
+  "name":"textile-intelligence-platform",
+  "version":"3.0.0",
+  "private":true,
+  "type":"module",
+  "description":"Production-oriented textile manufacturing intelligence platform with verified yarn analytics, market indicators, forecasting and operational data contracts.",
+  "scripts":{"start":"node server.js","dev":"node --watch server.js"},
+  "engines":{"node":">=20"},
+  "dependencies":{"express":"^5.1.0","pdf-parse":"^1.1.1"}
 }
