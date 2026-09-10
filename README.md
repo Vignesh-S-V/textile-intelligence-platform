@@ -57,8 +57,7 @@ Set `PYTHON_BIN=python3` if the host uses a non-default Python executable.
 
 - `index.html` — focused yarn intelligence/forecast UI
 - `styles.css` — responsive enterprise UI
-- `app.js` — data loading, stable cascading filters, market comparison, pagination and forecast request
-- `forecast.js` — forecast chart renderer
+- `app.js` — data loading, stable cascading filters, market comparison, pagination, forecast request and forecast chart rendering
 - `forecast.py` — preprocessing, features, models and rolling validation
 - `server.js` — Express APIs and Python forecast bridge
 - `data/yarn.json` — normalized official yarn history
