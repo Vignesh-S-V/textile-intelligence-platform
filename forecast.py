@@ -25,7 +25,6 @@ def clean(records):
 def monthly(df):
     if df.empty:return pd.DataFrame(columns=['date','y'])
     s=df.set_index('date').price_inr_kg.resample('MS').mean()
-    # Only fill gaps between two real observations. Never invent endpoints.
     return s.interpolate(method='time',limit_area='inside').dropna().rename('y').reset_index()
 
 def mape(a,p):
@@ -34,26 +33,36 @@ def mape(a,p):
 
 def rmse(a,p): return float(np.sqrt(mean_squared_error(a,p)))
 
+def vals(y):
+    """Accept either a monthly DataFrame (date,y) or a plain array-like."""
+    return np.asarray(y.y.values if hasattr(y,'y') else y, dtype=float)
+
 def holt(y,h):
+    y=vals(y)
     if len(y)<4:return np.repeat(y[-1],h)
     l=float(y[0]);b=float(y[1]-y[0]);a=.35;g=.18
     for v in y[1:]: old=l;l=a*v+(1-a)*(l+b);b=g*(l-old)+(1-g)*b
     return np.maximum(0,[l+(i+1)*b for i in range(h)])
 
 def damped(y,h):
+    y=vals(y)
     if len(y)<4:return np.repeat(y[-1],h)
     l=float(y[0]);b=float(y[1]-y[0]);a=.3;g=.15;phi=.82
     for v in y[1:]: old=l;l=a*v+(1-a)*(l+phi*b);b=g*(l-old)+(1-g)*phi*b
     return np.maximum(0,[l+b*phi*(1-phi**(i+1))/(1-phi) for i in range(h)])
 
 def drift(y,h):
+    y=vals(y)
     if len(y)<2:return np.repeat(y[-1],h)
     b=(y[-1]-y[0])/(len(y)-1);return np.maximum(0,[y[-1]+b*(i+1) for i in range(h)])
 
-def recent(y,h):return np.repeat(np.mean(y[-min(6,len(y)):]),h)
-def seasonal(y,h):return None if len(y)<24 else np.maximum(0,[y[-12+i%12] for i in range(h)])
+def recent(y,h):
+    y=vals(y);return np.repeat(np.mean(y[-min(6,len(y)):]),h)
+def seasonal(y,h):
+    y=vals(y);return None if len(y)<24 else np.maximum(0,[y[-12+i%12] for i in range(h)])
 
 def sarimax(y,h):
+    y=vals(y)
     if not HAS_SARIMAX or len(y)<18:return None
     so=(1,1,1,12) if len(y)>=30 else (0,0,0,0)
     try:
@@ -82,24 +91,34 @@ def ml(train,h,kind):
 def candidates():return {'SARIMAX':sarimax,'Holt Exponential Smoothing':holt,'Damped Trend':damped,'Seasonal Naive':seasonal,'Gradient Boosting + Lags':lambda y,h:ml(y,h,'HGB'),'Ridge + Lags/Rolling':lambda y,h:ml(y,h,'RIDGE'),'Drift':drift,'Recent Mean':recent}
 
 def validate(y,fn,h):
-    n=len(y);start=max(12,min(30,int(n*.55)));a=[];p=[]
+    n=len(y);start=max(8,min(30,int(n*.55)));a=[];p=[]
     for end in range(start,n,3):
         take=min(h,n-end)
+        if take<=0: continue
         try:q=fn(y.iloc[:end].copy(),take)
         except Exception:q=None
-        if q is not None and len(q)==take:a.extend(y.iloc[end:end+take].y);p.extend(q)
+        if q is not None and len(q)==take and np.all(np.isfinite(q)):
+            a.extend(y.iloc[end:end+take].y);p.extend(q)
     return None if len(a)<3 else {'mape':mape(a,p),'rmse':rmse(a,p),'n':len(a)}
 
 def run(payload):
     h=max(1,min(12,int(payload.get('horizon',3))));y=monthly(clean(payload.get('records',[])))
     if len(y)<12:return {'ok':False,'error':f'{len(y)} monthly observations; at least 12 required for model comparison.','monthly_points':len(y)}
-    board=[]
-    for name,fn in candidates().items():
+    model_map=candidates();board=[]
+    for name,fn in model_map.items():
         score=validate(y,fn,h)
         if score:board.append({'model':name,**score})
     if not board:return {'ok':False,'error':'No model passed rolling-origin validation.'}
-    board.sort(key=lambda z:(z['mape'],z['rmse']));best=board[0];pred=candidates()[best['model']](y,h)
-    if pred is None:return {'ok':False,'error':'Selected model could not generate a forecast.'}
+    board.sort(key=lambda z:(z['mape'],z['rmse']))
+    best=None;pred=None
+    for entry in board:
+        try:
+            candidate=model_map[entry['model']](y,h)
+            if candidate is not None and len(candidate)==h and np.all(np.isfinite(candidate)):
+                best=entry;pred=np.maximum(0,np.asarray(candidate,float));break
+        except Exception:
+            continue
+    if best is None:return {'ok':False,'error':'Validated models could not generate a forecast.'}
     dates=[];d=y.date.iloc[-1]
     for _ in range(h):d=d+pd.offsets.MonthBegin(1);dates.append(d.strftime('%Y-%m'))
     return {'ok':True,'model':best['model'],'validation':best,'leaderboard':board,'history':[{'month':r.date.strftime('%Y-%m'),'price':float(r.y)} for r in y.itertuples()],'forecast':[{'month':m,'price':float(v)} for m,v in zip(dates,pred)],'latest_historical':float(y.y.iloc[-1]),'monthly_points':len(y)}
