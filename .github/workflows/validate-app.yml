@@ -1,7 +1,7 @@
 name: Validate application
 on:
   push:
-    branches: [main]
+    branches: [main, qa-hardening-2026-09-10]
   pull_request:
     branches: [main]
 jobs:
@@ -12,7 +12,41 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - run: npm install
+      - run: python -m pip install -r requirements.txt
       - run: node --check server.js
       - run: node --check app.js
       - run: node --check forecast.js
+      - run: python -m py_compile forecast.py
+      - name: Forecast engine smoke test
+        run: |
+          python - <<'PY'
+          import json, subprocess
+          with open('data/yarn.json', encoding='utf-8') as f:
+              records = json.load(f)['records']
+          selected = [r for r in records if r.get('fiber') == 'Cotton' and r.get('product') == 'Cotton Yarn' and r.get('yarn_type') == 'Combed Yarn' and r.get('count') == '20s']
+          assert len(selected) >= 12, f'Insufficient smoke-test records: {len(selected)}'
+          p = subprocess.run(['python', 'forecast.py'], input=json.dumps({'records': selected, 'horizon': 3}), text=True, capture_output=True, check=True)
+          result = json.loads(p.stdout)
+          assert result.get('ok') is True, result
+          assert len(result.get('forecast', [])) == 3, result
+          assert all(isinstance(x.get('price'), (int, float)) and x['price'] > 0 for x in result['forecast']), result
+          print('FORECAST SMOKE TEST OK:', result['model'], result['monthly_points'], 'monthly points')
+          PY
+      - name: Start application
+        run: nohup npm start >/tmp/textile-intelligence.log 2>&1 &
+      - name: Wait for health endpoint
+        run: |
+          for i in {1..30}; do curl -fsS http://127.0.0.1:10000/health && exit 0; sleep 2; done
+          cat /tmp/textile-intelligence.log
+          exit 1
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser E2E forecast test
+        run: npm run e2e
+      - name: Show application log on failure
+        if: failure()
+        run: cat /tmp/textile-intelligence.log
