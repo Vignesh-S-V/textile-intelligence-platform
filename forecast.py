@@ -82,24 +82,42 @@ def ml(train,h,kind):
 def candidates():return {'SARIMAX':sarimax,'Holt Exponential Smoothing':holt,'Damped Trend':damped,'Seasonal Naive':seasonal,'Gradient Boosting + Lags':lambda y,h:ml(y,h,'HGB'),'Ridge + Lags/Rolling':lambda y,h:ml(y,h,'RIDGE'),'Drift':drift,'Recent Mean':recent}
 
 def validate(y,fn,h):
-    n=len(y);start=max(12,min(30,int(n*.55)));a=[];p=[]
+    n=len(y)
+    # Start before 12 months so exactly-12-month datasets can be backtested.
+    # Candidates that need more history simply return None for those folds.
+    start=max(8,min(30,int(n*.55)))
+    a=[];p=[]
     for end in range(start,n,3):
         take=min(h,n-end)
+        if take <= 0: continue
         try:q=fn(y.iloc[:end].copy(),take)
         except Exception:q=None
-        if q is not None and len(q)==take:a.extend(y.iloc[end:end+take].y);p.extend(q)
+        if q is not None and len(q)==take and np.all(np.isfinite(q)):
+            a.extend(y.iloc[end:end+take].y);p.extend(q)
     return None if len(a)<3 else {'mape':mape(a,p),'rmse':rmse(a,p),'n':len(a)}
 
 def run(payload):
     h=max(1,min(12,int(payload.get('horizon',3))));y=monthly(clean(payload.get('records',[])))
     if len(y)<12:return {'ok':False,'error':f'{len(y)} monthly observations; at least 12 required for model comparison.','monthly_points':len(y)}
-    board=[]
-    for name,fn in candidates().items():
+    model_map=candidates();board=[]
+    for name,fn in model_map.items():
         score=validate(y,fn,h)
         if score:board.append({'model':name,**score})
     if not board:return {'ok':False,'error':'No model passed rolling-origin validation.'}
-    board.sort(key=lambda z:(z['mape'],z['rmse']));best=board[0];pred=candidates()[best['model']](y,h)
-    if pred is None:return {'ok':False,'error':'Selected model could not generate a forecast.'}
+    board.sort(key=lambda z:(z['mape'],z['rmse']))
+
+    # Never let one validated model failure take down the whole forecast.
+    # Try models in validated rank order and use the first finite prediction.
+    best=None;pred=None
+    for entry in board:
+        try:
+            candidate=model_map[entry['model']](y,h)
+            if candidate is not None and len(candidate)==h and np.all(np.isfinite(candidate)):
+                best=entry;pred=np.maximum(0,np.asarray(candidate,float));break
+        except Exception:
+            continue
+    if best is None:return {'ok':False,'error':'Validated models could not generate a forecast.'}
+
     dates=[];d=y.date.iloc[-1]
     for _ in range(h):d=d+pd.offsets.MonthBegin(1);dates.append(d.strftime('%Y-%m'))
     return {'ok':True,'model':best['model'],'validation':best,'leaderboard':board,'history':[{'month':r.date.strftime('%Y-%m'),'price':float(r.y)} for r in y.itertuples()],'forecast':[{'month':m,'price':float(v)} for m,v in zip(dates,pred)],'latest_historical':float(y.y.iloc[-1]),'monthly_points':len(y)}
