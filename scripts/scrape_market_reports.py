@@ -11,8 +11,8 @@ from bs4 import BeautifulSoup
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'data'/'live_yarn.json'
 MIN_DATE='2021-01-01'
-HEADERS={'User-Agent':'Textile-Intelligence-Platform market-report bot/1.5'}
-SOURCES=[{'name':'Textile Today','short':'TEXTILE_TODAY','feed':'https://www.textiletoday.com.bd/feed/?s=cotton%20yarn','search':'https://www.textiletoday.com.bd/?s=cotton+yarn','home':'https://www.textiletoday.com.bd/'}]
+HEADERS={'User-Agent':'Textile-Intelligence-Platform market-report bot/1.6'}
+SOURCES=[{'name':'Textile Today','short':'TEXTILE_TODAY','feed':'https://www.textiletoday.com.bd/feed/?s=cotton%20yarn','search':'https://www.textiletoday.com.bd/?s=cotton+yarn','home':'https://www.textiletoday.com.bd/','wp_search':'https://www.textiletoday.com.bd/wp-json/wp/v2/search?search=cotton%20yarn&per_page=20'}]
 SEED_URLS=['https://www.textiletoday.com.bd/cotton-yarn-prices-declines-south-india-due-poor-demand']
 COUNT_RE=re.compile(r'\b(\d{1,3})\s*(?:s|count)\b',re.I)
 PRICE_RANGE_RE=re.compile(r'(?:₹|Rs\.?|INR)\s*([0-9][0-9,]*(?:\.\d+)?)\s*(?:-|–|—|to)\s*(?:₹|Rs\.?|INR)?\s*([0-9][0-9,]*(?:\.\d+)?)\s*(?:per\s*)?kg',re.I)
@@ -26,6 +26,9 @@ def num(v):
     except Exception:return None
 def get(url):
     r=requests.get(url,headers=HEADERS,timeout=45);r.raise_for_status();return r.content
+
+def get_json(url):
+    r=requests.get(url,headers={**HEADERS,'Accept':'application/json'},timeout=45);r.raise_for_status();return r.json()
 
 def parse_date(text):
     text=clean(text)
@@ -46,8 +49,7 @@ def add(rows,**r):
     r['price_mid_inr_kg']=round((pmin+pmax)/2,2);r['unit']='INR/kg';r['source_tier']='MARKET_INDICATOR';rows.append(r)
 
 def parse_text(text,url,source_short,source_name,date,title=''):
-    text=clean(BeautifulSoup(str(text or ''),'html.parser').get_text(' ',strip=True))
-    title=clean(title)
+    text=clean(BeautifulSoup(str(text or ''),'html.parser').get_text(' ',strip=True));title=clean(title)
     if not date or 'yarn' not in (title+' '+text).lower() or 'cotton yarn' not in (title+' '+text).lower():return []
     rows=[];spans=[]
     for m in PRICE_RANGE_RE.finditer(text):
@@ -92,18 +94,30 @@ def textile_today():
                 title=clean(item.title.get_text(' ',strip=True) if item.title else '')
                 pub=clean(item.pubDate.get_text(' ',strip=True) if item.pubDate else '')
                 date=parse_date(pub)
-                encoded=item.find(['content:encoded','encoded'])
-                desc=item.find('description')
+                encoded=item.find(['content:encoded','encoded']);desc=item.find('description')
                 body=encoded.get_text(' ',strip=True) if encoded else (desc.get_text(' ',strip=True) if desc else '')
                 if link and 'yarn' in (title+' '+link+' '+body).lower():
-                    seen.add(link)
-                    feed_rows=parse_text(body,link,source['short'],source['name'],date,title)
+                    seen.add(link);feed_rows=parse_text(body,link,source['short'],source['name'],date,title)
                     if feed_rows:
                         rows.extend(feed_rows);print('RSS parsed:',title,date,len(feed_rows))
                     else:
                         try:rows.extend(parse_article(link,source['short'],source['name'],pub))
                         except Exception as e:print('RSS article failed:',link,e)
         except Exception as e:print('RSS failed:',e)
+        try:
+            hits=get_json(source['wp_search']);print('Textile Today WP search hits:',len(hits))
+            for hit in hits[:20]:
+                link=clean(hit.get('url'));subtype=clean(hit.get('subtype') or 'post');rid=hit.get('id');title=clean(hit.get('title',{}).get('rendered') or hit.get('title'))
+                if not link or not rid or link in seen:continue
+                try:
+                    obj=get_json(f"https://www.textiletoday.com.bd/wp-json/wp/v2/{subtype}/{rid}")
+                    content=clean(obj.get('content',{}).get('rendered'));excerpt=clean(obj.get('excerpt',{}).get('rendered'));body=content or excerpt
+                    date=parse_date(obj.get('date') or obj.get('modified') or '')
+                    rr=parse_text(body,link,source['short'],source['name'],date,title)
+                    if rr:
+                        rows.extend(rr);seen.add(link);print('WP parsed:',title,date,len(rr))
+                except Exception as e:print('WP article failed:',link,e)
+        except Exception as e:print('WP search failed:',e)
         for page in (source['search'],source['home']):
             try:
                 soup=BeautifulSoup(get(page).decode('utf-8','ignore'),'html.parser');links=[]
