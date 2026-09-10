@@ -28,6 +28,10 @@ def monthly(df):
     # Only fill gaps between two real observations. Never invent endpoints.
     return s.interpolate(method='time',limit_area='inside').dropna().rename('y').reset_index()
 
+def values(y):
+    """Return the numeric history regardless of whether callers pass a DataFrame or Series."""
+    return y['y'].astype(float) if isinstance(y, pd.DataFrame) else pd.Series(y, dtype=float)
+
 def mape(a,p):
     a,p=np.asarray(a,float),np.asarray(p,float); ok=np.isfinite(a)&np.isfinite(p)&(a!=0)
     return float(np.mean(np.abs((a[ok]-p[ok])/a[ok]))*100) if ok.any() else 999.
@@ -35,25 +39,34 @@ def mape(a,p):
 def rmse(a,p): return float(np.sqrt(mean_squared_error(a,p)))
 
 def holt(y,h):
+    y=values(y).to_numpy()
     if len(y)<4:return np.repeat(y[-1],h)
     l=float(y[0]);b=float(y[1]-y[0]);a=.35;g=.18
     for v in y[1:]: old=l;l=a*v+(1-a)*(l+b);b=g*(l-old)+(1-g)*b
     return np.maximum(0,[l+(i+1)*b for i in range(h)])
 
 def damped(y,h):
+    y=values(y).to_numpy()
     if len(y)<4:return np.repeat(y[-1],h)
     l=float(y[0]);b=float(y[1]-y[0]);a=.3;g=.15;phi=.82
     for v in y[1:]: old=l;l=a*v+(1-a)*(l+phi*b);b=g*(l-old)+(1-g)*phi*b
     return np.maximum(0,[l+b*phi*(1-phi**(i+1))/(1-phi) for i in range(h)])
 
 def drift(y,h):
+    y=values(y).to_numpy()
     if len(y)<2:return np.repeat(y[-1],h)
     b=(y[-1]-y[0])/(len(y)-1);return np.maximum(0,[y[-1]+b*(i+1) for i in range(h)])
 
-def recent(y,h):return np.repeat(np.mean(y[-min(6,len(y)):]),h)
-def seasonal(y,h):return None if len(y)<24 else np.maximum(0,[y[-12+i%12] for i in range(h)])
+def recent(y,h):
+    y=values(y).to_numpy()
+    return np.repeat(np.mean(y[-min(6,len(y)):]),h)
+
+def seasonal(y,h):
+    y=values(y).to_numpy()
+    return None if len(y)<24 else np.maximum(0,[y[-12+i%12] for i in range(h)])
 
 def sarimax(y,h):
+    y=values(y).to_numpy()
     if not HAS_SARIMAX or len(y)<18:return None
     so=(1,1,1,12) if len(y)>=30 else (0,0,0,0)
     try:
