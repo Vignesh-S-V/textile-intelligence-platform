@@ -80,7 +80,7 @@ function validateForecastPayload(body) {
 function runForecastProcess(input) {
   return new Promise((resolve, reject) => {
     let binIndex = 0;
-    let child = null;
+    let currentChild = null;
     let out = '';
     let err = '';
     let settled = false;
@@ -91,6 +91,7 @@ function runForecastProcess(input) {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      currentChild = null;
       fn();
     };
 
@@ -99,40 +100,46 @@ function runForecastProcess(input) {
       out = '';
       err = '';
       console.log(`Forecast process starting with ${bin}`);
-      child = spawn(bin, [join(__dirname, 'forecast.py')], {
+      const spawnedChild = spawn(bin, [join(__dirname, 'forecast.py')], {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, PYTHONUNBUFFERED: '1' }
       });
+      currentChild = spawnedChild;
 
       timer = setTimeout(() => {
+        if (currentChild !== spawnedChild || settled) return;
         console.error(`Forecast process timed out after ${FORECAST_TIMEOUT_MS}ms (${bin}).`);
-        child.kill('SIGKILL');
+        spawnedChild.kill('SIGKILL');
         finish(() => reject(new Error('Forecast engine timed out.')));
       }, FORECAST_TIMEOUT_MS);
 
-      child.stdout.on('data', chunk => {
+      spawnedChild.stdout.on('data', chunk => {
+        if (currentChild !== spawnedChild || settled) return;
         out += chunk.toString();
         if (out.length > MAX_OUTPUT) {
-          child.kill('SIGKILL');
+          spawnedChild.kill('SIGKILL');
           finish(() => reject(new Error('Forecast engine produced excessive output.')));
         }
       });
-      child.stderr.on('data', chunk => {
+      spawnedChild.stderr.on('data', chunk => {
+        if (currentChild !== spawnedChild || settled) return;
         err += chunk.toString();
         if (err.length > 16_000) err = err.slice(-16_000);
       });
-      child.on('error', error => {
-        if (!settled && binIndex < PYTHON_BINS.length - 1 && error.code === 'ENOENT') {
+      spawnedChild.on('error', error => {
+        if (currentChild !== spawnedChild || settled) return;
+        if (binIndex < PYTHON_BINS.length - 1 && error.code === 'ENOENT') {
           console.error(`Forecast executable ${bin} not found; trying ${PYTHON_BINS[++binIndex]}.`);
           if (timer) clearTimeout(timer);
+          currentChild = null;
           start();
           return;
         }
         console.error('Forecast process error:', error.message);
         finish(() => reject(new Error('Forecast engine is unavailable.')));
       });
-      child.on('close', code => {
-        if (settled) return;
+      spawnedChild.on('close', code => {
+        if (currentChild !== spawnedChild || settled) return;
         if (code !== 0) {
           console.error(`Forecast engine exited with code ${code} using ${bin}:`, err.trim());
           finish(() => reject(new Error(code === null ? 'Forecast engine was terminated.' : 'Forecast engine failed to execute.')));
@@ -140,12 +147,52 @@ function runForecastProcess(input) {
         }
         finish(() => resolve(out));
       });
-      child.stdin.on('error', e => console.error('Forecast stdin error:', e.message));
-      child.stdin.end(JSON.stringify(input));
+      spawnedChild.stdin.on('error', e => console.error('Forecast stdin error:', e.message));
+      spawnedChild.stdin.end(JSON.stringify(input));
     };
 
     start();
   });
+}
+
+function jsForecastFallback(records, horizon) {
+  const monthly = new Map();
+  for (const row of records) {
+    const date = String(row?.date ?? '');
+    const price = Number(row?.price_inr_kg);
+    const month = date.slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(month) && Number.isFinite(price) && price > 0) {
+      const values = monthly.get(month) || [];
+      values.push(price);
+      monthly.set(month, values);
+    }
+  }
+  const history = [...monthly.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, values]) => ({
+    month,
+    price: values.reduce((sum, value) => sum + value, 0) / values.length
+  }));
+  if (!history.length) return { ok: false, error: 'No valid monthly observations available for forecasting.', monthly_points: 0 };
+
+  const recent = history.slice(-Math.min(6, history.length));
+  const level = recent.reduce((sum, item) => sum + item.price, 0) / recent.length;
+  const forecast = [];
+  let cursor = new Date(`${history.at(-1).month}-01T00:00:00Z`);
+  for (let i = 0; i < horizon; i += 1) {
+    cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
+    forecast.push({ month: cursor.toISOString().slice(0, 7), price: level });
+  }
+  const validation = { mape: 999, rmse: 999, n: 0 };
+  return {
+    ok: true,
+    model: 'Recent Mean (Node fallback)',
+    validation,
+    leaderboard: [{ model: 'Recent Mean (Node fallback)', ...validation }],
+    history,
+    forecast,
+    latest_historical: history.at(-1).price,
+    monthly_points: history.length,
+    fallback: true
+  };
 }
 
 app.get('/api/yarn', (req, res) => {
@@ -177,14 +224,18 @@ app.post('/api/forecast', forecastRateLimit, async (req, res) => {
     const out = await runForecastProcess({ records: req.body.records, horizon: Number(req.body.horizon) });
     try {
       const result = JSON.parse(out);
-      if (!result || result.ok !== true) return res.status(422).json({ ok: false, error: result?.error || 'Forecast could not be generated for the selected data.' });
+      if (!result || result.ok !== true) {
+        console.error('Forecast engine returned an unsuccessful result:', result?.error || 'unknown error');
+        return res.json(jsForecastFallback(req.body.records, Number(req.body.horizon)));
+      }
       return res.json(result);
     } catch {
       console.error('Forecast engine returned non-JSON output:', out.slice(0, 1000));
-      return res.status(500).json({ ok: false, error: 'Forecast engine returned invalid output.' });
+      return res.json(jsForecastFallback(req.body.records, Number(req.body.horizon)));
     }
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error.message });
+    console.error('Python forecast failed; using Node fallback:', error.message);
+    return res.json(jsForecastFallback(req.body.records, Number(req.body.horizon)));
   }
 });
 
@@ -195,5 +246,5 @@ app.use((err, req, res, next) => {
   return res.status(500).json({ ok: false, error: 'Internal server error.' });
 });
 
-app.get('/health', (req, res) => res.json({ status: 'ok', service: 'textile-intelligence-platform', forecast_engine: 'python', python_candidates: PYTHON_BINS }));
+app.get('/health', (req, res) => res.json({ status: 'ok', service: 'textile-intelligence-platform', forecast_engine: 'python-with-node-fallback', python_candidates: PYTHON_BINS }));
 app.listen(PORT, '0.0.0.0', () => console.log(`Textile Intelligence Platform running on ${PORT}`));
