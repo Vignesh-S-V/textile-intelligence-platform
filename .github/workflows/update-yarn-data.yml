@@ -7,7 +7,6 @@ on:
       - 'scripts/scrape_yarn.py'
       - 'scripts/scrape_association_prices.py'
       - 'scripts/scrape_sima_ereviews.py'
-      - 'scripts/scrape_market_reports.py'
       - 'package.json'
       - '.github/workflows/update-yarn-data.yml'
   schedule:
@@ -42,8 +41,6 @@ jobs:
         run: python scripts/scrape_sima_ereviews.py
       - name: Augment gaps from public SIMA and TEA association publications
         run: python scripts/scrape_association_prices.py
-      - name: Scrape public yarn market reports
-        run: python scripts/scrape_market_reports.py
       - name: Normalize Yarn Type and Spinning fields
         run: |
           python - <<'PY'
@@ -82,27 +79,9 @@ jobs:
           assert all(r.get('spinning') for r in rows), 'Spinning field missing'
           print('OFFICIAL VALIDATION OK:',len(rows),'records; latest=',max(r['date'] for r in rows))
           PY
-      - name: Validate market-report dataset
-        run: |
-          python - <<'PY'
-          import json
-          d=json.load(open('data/live_yarn.json',encoding='utf-8'))
-          rows=d.get('records',[])
-          assert isinstance(rows,list), 'Market records must be a list'
-          keys=set()
-          for r in rows:
-              assert r.get('date') and r.get('source_url'), 'Market record missing date/source URL'
-              assert r.get('source_tier')=='MARKET_INDICATOR', 'Market record has wrong source tier'
-              assert r.get('price_min_inr_kg') is not None and r.get('price_max_inr_kg') is not None, 'Market price missing'
-              assert r['price_min_inr_kg'] <= r['price_max_inr_kg'], 'Invalid market price range'
-              key=(r.get('source_short'),r.get('source_url'),r.get('date'),r.get('market'),r.get('count'),r.get('yarn_type'),r.get('price_min_inr_kg'),r.get('price_max_inr_kg'))
-              assert key not in keys, 'DUPLICATE MARKET RECORD DETECTED'
-              keys.add(key)
-          print('MARKET VALIDATION OK:',len(rows),'records; latest=',max((r['date'] for r in rows), default='none'))
-          PY
-      - name: Commit refreshed datasets
+      - name: Commit refreshed official dataset
         run: |
           git config user.name 'textile-data-bot'
           git config user.email 'textile-data-bot@users.noreply.github.com'
-          git add data/yarn.json data/live_yarn.json
-          if git diff --cached --quiet; then echo 'No dataset changes.'; else git commit -m 'chore(data): refresh official and market yarn prices'; git fetch origin main; git rebase origin/main; git push origin HEAD:main; fi
+          git add data/yarn.json
+          if git diff --cached --quiet; then echo 'No dataset changes.'; else git commit -m 'chore(data): refresh official yarn prices'; git fetch origin main; git rebase origin/main; git push origin HEAD:main; fi
