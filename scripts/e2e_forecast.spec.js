@@ -42,5 +42,19 @@ test('forecast renders through the UI without console errors', async ({ page }) 
   expect(forecastResponses.some(status => status >= 500)).toBeFalsy();
   await expect(page.locator('#forecast-chart')).toBeVisible();
   expect(await page.locator('#forecast-chart').evaluate(canvas => Boolean(canvas.getContext('2d')))).toBeTruthy();
+
+  // Regression: a single selected month must reach the API and render a
+  // short-history fallback instead of being blocked by a 12-month UI gate.
+  await page.locator('#year').selectOption('2021');
+  await page.locator('#month').selectOption('1');
+  await expect.poll(async () => {
+    const meta = await page.locator('#forecast-meta').innerText();
+    return meta.includes('Short-history fallback');
+  }, { timeout: 120_000, intervals: [500, 1000, 2000, 5000] }).toBeTruthy();
+
+  expect(forecastResponses.filter(status => status === 200).length).toBeGreaterThanOrEqual(2);
+  expect(forecastResponses.some(status => status >= 500)).toBeFalsy();
+  await expect(page.locator('#forecast-chart')).toBeVisible();
+  expect(await page.locator('#forecast-chart').evaluate(canvas => Boolean(canvas.getContext('2d')))).toBeTruthy();
   expect(failures).toEqual([]);
 });
