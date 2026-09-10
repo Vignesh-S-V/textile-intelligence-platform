@@ -11,13 +11,13 @@ from bs4 import BeautifulSoup
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'data'/'live_yarn.json'
 MIN_DATE='2021-01-01'
-HEADERS={'User-Agent':'Textile-Intelligence-Platform market-report bot/1.3'}
+HEADERS={'User-Agent':'Textile-Intelligence-Platform market-report bot/1.4'}
 SOURCES=[{'name':'Textile Today','short':'TEXTILE_TODAY','feed':'https://www.textiletoday.com.bd/feed/?s=cotton%20yarn','search':'https://www.textiletoday.com.bd/?s=cotton+yarn','home':'https://www.textiletoday.com.bd/'}]
-# Seed only known public report pages; these are discovery fallbacks, not hard-coded prices.
 SEED_URLS=['https://www.textiletoday.com.bd/cotton-yarn-prices-declines-south-india-due-poor-demand']
 COUNT_RE=re.compile(r'\b(\d{1,3})\s*(?:s|count)\b',re.I)
 PRICE_RANGE_RE=re.compile(r'(?:₹|Rs\.?|INR)\s*([0-9][0-9,]*(?:\.\d+)?)\s*(?:-|–|—|to)\s*(?:₹|Rs\.?|INR)?\s*([0-9][0-9,]*(?:\.\d+)?)\s*(?:per\s*)?kg',re.I)
 PRICE_SINGLE_RE=re.compile(r'(?:₹|Rs\.?|INR)\s*([0-9][0-9,]*(?:\.\d+)?)\s*(?:per\s*)?kg',re.I)
+MONTH_DATE_RE=re.compile(r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+20\d{2}\b',re.I)
 
 def clean(v): return re.sub(r'\s+',' ',str(v or '').replace('\xa0',' ')).strip()
 def num(v):
@@ -55,6 +55,9 @@ def parse_article(url,source_short,source_name,published_hint=None):
             if node:
                 date=parse_date(node.get('content') or node.get('datetime') or node.get_text(' ',strip=True))
                 if date:break
+    if not date:
+        m=MONTH_DATE_RE.search(text)
+        date=parse_date(m.group(0)) if m else None
     if not date:return []
     rows=[];spans=[]
     for m in PRICE_RANGE_RE.finditer(text):
@@ -77,10 +80,8 @@ def parse_article(url,source_short,source_name,published_hint=None):
 def textile_today():
     rows=[];seen=set()
     for source in SOURCES:
-        # Parse RSS with the standard HTML parser so no lxml dependency is required.
         try:
-            soup=BeautifulSoup(get(source['feed']).decode('utf-8','ignore'),'html.parser')
-            items=soup.find_all('item');print('Textile Today feed items:',len(items))
+            soup=BeautifulSoup(get(source['feed']).decode('utf-8','ignore'),'html.parser');items=soup.find_all('item');print('Textile Today feed items:',len(items))
             for item in items[:50]:
                 link=clean(item.link.get_text()) if item.link else '';title=clean(item.title.get_text(' ',strip=True) if item.title else '');pub=clean(item.pubDate.get_text(' ',strip=True) if item.pubDate else '')
                 if link and 'yarn' in (title+' '+link).lower():
@@ -88,11 +89,9 @@ def textile_today():
                     try:rows.extend(parse_article(link,source['short'],source['name'],pub))
                     except Exception as e:print('RSS article failed:',link,e)
         except Exception as e:print('RSS failed:',e)
-        # Search/home pages are secondary discovery fallbacks.
         for page in (source['search'],source['home']):
             try:
-                soup=BeautifulSoup(get(page).decode('utf-8','ignore'),'html.parser')
-                links=[]
+                soup=BeautifulSoup(get(page).decode('utf-8','ignore'),'html.parser');links=[]
                 for a in soup.find_all('a',href=True):
                     link=urljoin(page,a['href']);label=clean(a.get_text(' ',strip=True))
                     if link.startswith('https://www.textiletoday.com.bd/') and link not in links and link not in seen and 'yarn' in (link+' '+label).lower():links.append(link)
