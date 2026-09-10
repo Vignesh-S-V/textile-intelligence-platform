@@ -9,14 +9,19 @@ test('forecast renders through the UI without console errors', async ({ page }) 
     if (response.url().includes('/api/forecast')) forecastResponses.push(response.status());
   });
 
-  await page.goto(process.env.BASE_URL || 'http://127.0.0.1:10000', { waitUntil: 'networkidle', timeout: 60_000 });
-  for (const id of ['fiber', 'product', 'yarn_type', 'count']) {
-    await page.locator(`#${id} option`).nth(1).waitFor({ state: 'attached', timeout: 20_000 });
-    await page.locator(`#${id}`).selectOption({ index: 1 });
-  }
+  await page.goto(process.env.BASE_URL || 'http://127.0.0.1:10000', { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
-  await expect(page.locator('#forecast-meta')).toContainText('Rolling backtest', { timeout: 60_000 });
-  await expect.poll(() => forecastResponses.length, { timeout: 60_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => page.locator('#fiber option').count(), { timeout: 60_000 }).toBeGreaterThan(1);
+  await page.locator('#fiber').selectOption({ index: 1 });
+  await expect.poll(async () => page.locator('#product option').count(), { timeout: 30_000 }).toBeGreaterThan(1);
+  await page.locator('#product').selectOption({ index: 1 });
+  await expect.poll(async () => page.locator('#yarn_type option').count(), { timeout: 30_000 }).toBeGreaterThan(1);
+  await page.locator('#yarn_type').selectOption({ index: 1 });
+  await expect.poll(async () => page.locator('#count option').count(), { timeout: 30_000 }).toBeGreaterThan(1);
+  await page.locator('#count').selectOption({ index: 1 });
+
+  await expect(page.locator('#forecast-meta')).toContainText('Rolling backtest', { timeout: 90_000 });
+  await expect.poll(() => forecastResponses.length, { timeout: 30_000 }).toBeGreaterThan(0);
   expect(forecastResponses.every(status => status === 200)).toBeTruthy();
   await expect(page.locator('#forecast-chart')).toBeVisible();
   expect(await page.locator('#forecast-chart').evaluate(canvas => Boolean(canvas.getContext('2d')))).toBeTruthy();
