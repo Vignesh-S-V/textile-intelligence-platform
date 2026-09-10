@@ -49,9 +49,7 @@ function forecastRateLimit(req, res, next) {
 }
 setInterval(() => {
   const cutoff = Date.now() - FORECAST_WINDOW_MS;
-  for (const [key, bucket] of rateBuckets) {
-    if (bucket.startedAt < cutoff) rateBuckets.delete(key);
-  }
+  for (const [key, bucket] of rateBuckets) if (bucket.startedAt < cutoff) rateBuckets.delete(key);
 }, FORECAST_WINDOW_MS).unref();
 
 const REQUIRED_STRING_FIELDS = ['date', 'fiber', 'product', 'yarn_type', 'count', 'blend', 'state', 'district', 'centre', 'spinning'];
@@ -61,7 +59,6 @@ function validateForecastPayload(body) {
   if (body.records.length > MAX_FORECAST_RECORDS) return `Too many records. Maximum is ${MAX_FORECAST_RECORDS}.`;
   const horizon = Number(body.horizon);
   if (!Number.isInteger(horizon) || horizon < 1 || horizon > 12) return 'Horizon must be an integer from 1 to 12.';
-
   for (const row of body.records) {
     if (!row || typeof row !== 'object' || Array.isArray(row)) return 'Invalid forecast record.';
     const date = String(row.date ?? '');
@@ -86,54 +83,31 @@ function runForecastProcess(input) {
     let settled = false;
     let timer = null;
     const MAX_OUTPUT = 2 * 1024 * 1024;
-
-    const finish = (fn) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      currentChild = null;
-      fn();
-    };
-
+    const finish = fn => { if (settled) return; settled = true; if (timer) clearTimeout(timer); currentChild = null; fn(); };
     const start = () => {
-      const bin = PYTHON_BINS[binIndex];
-      out = '';
-      err = '';
+      const bin = PYTHON_BINS[binIndex]; out = ''; err = '';
       console.log(`Forecast process starting with ${bin}`);
-      const spawnedChild = spawn(bin, [join(__dirname, 'forecast.py')], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, PYTHONUNBUFFERED: '1' }
-      });
+      const spawnedChild = spawn(bin, [join(__dirname, 'forecast.py')], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PYTHONUNBUFFERED: '1' } });
       currentChild = spawnedChild;
-
       timer = setTimeout(() => {
         if (currentChild !== spawnedChild || settled) return;
         console.error(`Forecast process timed out after ${FORECAST_TIMEOUT_MS}ms (${bin}).`);
-        spawnedChild.kill('SIGKILL');
-        finish(() => reject(new Error('Forecast engine timed out.')));
+        spawnedChild.kill('SIGKILL'); finish(() => reject(new Error('Forecast engine timed out.')));
       }, FORECAST_TIMEOUT_MS);
-
       spawnedChild.stdout.on('data', chunk => {
         if (currentChild !== spawnedChild || settled) return;
         out += chunk.toString();
-        if (out.length > MAX_OUTPUT) {
-          spawnedChild.kill('SIGKILL');
-          finish(() => reject(new Error('Forecast engine produced excessive output.')));
-        }
+        if (out.length > MAX_OUTPUT) { spawnedChild.kill('SIGKILL'); finish(() => reject(new Error('Forecast engine produced excessive output.'))); }
       });
       spawnedChild.stderr.on('data', chunk => {
         if (currentChild !== spawnedChild || settled) return;
-        err += chunk.toString();
-        if (err.length > 16_000) err = err.slice(-16_000);
+        err += chunk.toString(); if (err.length > 16_000) err = err.slice(-16_000);
       });
       spawnedChild.on('error', error => {
         if (currentChild !== spawnedChild || settled) return;
         if (binIndex < PYTHON_BINS.length - 1 && error.code === 'ENOENT') {
           console.error(`Forecast executable ${bin} not found; trying ${PYTHON_BINS[++binIndex]}.`);
-          if (timer) clearTimeout(timer);
-          currentChild = null;
-          start();
-          return;
+          if (timer) clearTimeout(timer); currentChild = null; start(); return;
         }
         console.error('Forecast process error:', error.message);
         finish(() => reject(new Error('Forecast engine is unavailable.')));
@@ -150,101 +124,72 @@ function runForecastProcess(input) {
       spawnedChild.stdin.on('error', e => console.error('Forecast stdin error:', e.message));
       spawnedChild.stdin.end(JSON.stringify(input));
     };
-
     start();
   });
 }
 
-function jsForecastFallback(records, horizon) {
+function jsMonthly(records) {
   const monthly = new Map();
   for (const row of records) {
-    const date = String(row?.date ?? '');
-    const price = Number(row?.price_inr_kg);
-    const month = date.slice(0, 7);
+    const month = String(row?.date ?? '').slice(0, 7), price = Number(row?.price_inr_kg);
     if (/^\d{4}-\d{2}$/.test(month) && Number.isFinite(price) && price > 0) {
-      const values = monthly.get(month) || [];
-      values.push(price);
-      monthly.set(month, values);
+      const values = monthly.get(month) || []; values.push(price); monthly.set(month, values);
     }
   }
-  const history = [...monthly.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, values]) => ({
-    month,
-    price: values.reduce((sum, value) => sum + value, 0) / values.length
-  }));
-  if (!history.length) return { ok: false, error: 'No valid monthly observations available for forecasting.', monthly_points: 0 };
-
-  const recent = history.slice(-Math.min(6, history.length));
-  const level = recent.reduce((sum, item) => sum + item.price, 0) / recent.length;
-  const forecast = [];
-  let cursor = new Date(`${history.at(-1).month}-01T00:00:00Z`);
-  for (let i = 0; i < horizon; i += 1) {
-    cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
-    forecast.push({ month: cursor.toISOString().slice(0, 7), price: level });
+  return [...monthly.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, values]) => ({ month, price: values.reduce((s, v) => s + v, 0) / values.length }));
+}
+function jsRecent(train, h) { const n = Math.min(6, train.length); const v = train.slice(-n).reduce((s, x) => s + x, 0) / n; return Array(h).fill(v); }
+function jsDrift(train, h) { if (train.length < 2) return Array(h).fill(train.at(-1)); const b = (train.at(-1) - train[0]) / (train.length - 1); return Array.from({ length: h }, (_, i) => Math.max(0, train.at(-1) + b * (i + 1))); }
+function jsHolt(train, h) {
+  if (train.length < 4) return jsDrift(train, h);
+  let level = train[0], trend = train[1] - train[0]; const a = 0.35, g = 0.18;
+  for (let i = 1; i < train.length; i += 1) { const old = level; level = a * train[i] + (1 - a) * (level + trend); trend = g * (level - old) + (1 - g) * trend; }
+  return Array.from({ length: h }, (_, i) => Math.max(0, level + (i + 1) * trend));
+}
+function jsMape(actual, predicted) { const vals = actual.map((v, i) => Number.isFinite(v) && Number.isFinite(predicted[i]) && v !== 0 ? Math.abs((v - predicted[i]) / v) * 100 : null).filter(Number.isFinite); return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 999; }
+function jsRmse(actual, predicted) { if (!actual.length) return 999; return Math.sqrt(actual.reduce((s, v, i) => s + (v - predicted[i]) ** 2, 0) / actual.length); }
+function jsValidate(values, fn, horizon) {
+  if (values.length < 8) return null;
+  const start = Math.max(5, Math.min(8, Math.floor(values.length * 0.55)));
+  const actual = [], predicted = [];
+  for (let end = start; end < values.length; end += 2) {
+    const take = Math.min(horizon, values.length - end); if (take <= 0) continue;
+    const p = fn(values.slice(0, end), take); if (p.length !== take || !p.every(Number.isFinite)) continue;
+    actual.push(...values.slice(end, end + take)); predicted.push(...p);
   }
-  const validation = { mape: 999, rmse: 999, n: 0 };
-  return {
-    ok: true,
-    model: 'Recent Mean (Node fallback)',
-    validation,
-    leaderboard: [{ model: 'Recent Mean (Node fallback)', ...validation }],
-    history,
-    forecast,
-    latest_historical: history.at(-1).price,
-    monthly_points: history.length,
-    fallback: true
-  };
+  return actual.length >= 3 ? { mape: jsMape(actual, predicted), rmse: jsRmse(actual, predicted), n: actual.length } : null;
+}
+function jsForecastFallback(records, horizon) {
+  const history = jsMonthly(records);
+  if (!history.length) return { ok: false, error: 'No valid monthly observations available for forecasting.', monthly_points: 0 };
+  const values = history.map(x => x.price);
+  const models = { 'Holt Exponential Smoothing': jsHolt, 'Drift': jsDrift, 'Recent Mean': jsRecent };
+  const board = Object.entries(models).map(([model, fn]) => {
+    const validation = jsValidate(values, fn, horizon);
+    return validation ? { model, ...validation } : null;
+  }).filter(Boolean);
+  if (!board.length) {
+    const order = ['Holt Exponential Smoothing', 'Drift', 'Recent Mean'];
+    for (const model of order) board.push({ model, mape: 999, rmse: 999, n: 0 });
+  }
+  board.sort((a, b) => a.mape - b.mape || a.rmse - b.rmse);
+  const best = board[0], pred = models[best.model](values, horizon);
+  let cursor = new Date(`${history.at(-1).month}-01T00:00:00Z`), forecast = [];
+  for (const price of pred) { cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1)); forecast.push({ month: cursor.toISOString().slice(0, 7), price }); }
+  return { ok: true, model: `${best.model} (Node fallback)`, validation: best, leaderboard: board, history, forecast, latest_historical: history.at(-1).price, monthly_points: history.length, fallback: true };
 }
 
-app.get('/api/yarn', (req, res) => {
-  try {
-    const d = readJson('yarn.json'), r = d.records || [];
-    cache(res); res.json({ records: r, count: r.length, coverage: d.coverage || {}, source: d.source || 'official-textile-sources' });
-  } catch { res.status(500).json({ error: 'Official yarn dataset could not be loaded' }); }
-});
-
-app.get('/api/live-yarn', (req, res) => {
-  try {
-    const d = readJson('live_yarn.json'), r = d.records || [], dates = r.map(x => x.date).filter(Boolean).sort(), latest = dates.at(-1);
-    cache(res, 300); res.json({ records: r, count: r.length, latest_source_record: latest, latest_count: latest ? r.filter(x => x.date === latest).length : 0, source_tier: 'MARKET_INDICATOR' });
-  } catch { res.status(500).json({ error: 'Market dataset could not be loaded' }); }
-});
-
-app.get('/api/operations', (req, res) => {
-  try {
-    const d = readJson('operations.json'), r = d.records || [];
-    res.json({ records: r, count: r.length, connected: r.length > 0 });
-  } catch { res.status(500).json({ error: 'Operations dataset could not be loaded' }); }
-});
-
+app.get('/api/yarn', (req, res) => { try { const d = readJson('yarn.json'), r = d.records || []; cache(res); res.json({ records: r, count: r.length, coverage: d.coverage || {}, source: d.source || 'official-textile-sources' }); } catch { res.status(500).json({ error: 'Official yarn dataset could not be loaded' }); } });
+app.get('/api/live-yarn', (req, res) => { try { const d = readJson('live_yarn.json'), r = d.records || [], dates = r.map(x => x.date).filter(Boolean).sort(), latest = dates.at(-1); cache(res, 300); res.json({ records: r, count: r.length, latest_source_record: latest, latest_count: latest ? r.filter(x => x.date === latest).length : 0, source_tier: 'MARKET_INDICATOR' }); } catch { res.status(500).json({ error: 'Market dataset could not be loaded' }); } });
+app.get('/api/operations', (req, res) => { try { const d = readJson('operations.json'), r = d.records || []; res.json({ records: r, count: r.length, connected: r.length > 0 }); } catch { res.status(500).json({ error: 'Operations dataset could not be loaded' }); } });
 app.post('/api/forecast', forecastRateLimit, async (req, res) => {
-  const validationError = validateForecastPayload(req.body);
-  if (validationError) return res.status(400).json({ ok: false, error: validationError });
-
+  const validationError = validateForecastPayload(req.body); if (validationError) return res.status(400).json({ ok: false, error: validationError });
   try {
     const out = await runForecastProcess({ records: req.body.records, horizon: Number(req.body.horizon) });
-    try {
-      const result = JSON.parse(out);
-      if (!result || result.ok !== true) {
-        console.error('Forecast engine returned an unsuccessful result:', result?.error || 'unknown error');
-        return res.json(jsForecastFallback(req.body.records, Number(req.body.horizon)));
-      }
-      return res.json(result);
-    } catch {
-      console.error('Forecast engine returned non-JSON output:', out.slice(0, 1000));
-      return res.json(jsForecastFallback(req.body.records, Number(req.body.horizon)));
-    }
-  } catch (error) {
-    console.error('Python forecast failed; using Node fallback:', error.message);
-    return res.json(jsForecastFallback(req.body.records, Number(req.body.horizon)));
-  }
+    try { const result = JSON.parse(out); if (!result || result.ok !== true) return res.json(jsForecastFallback(req.body.records, Number(req.body.horizon))); return res.json(result); }
+    catch { console.error('Forecast engine returned non-JSON output:', out.slice(0, 1000)); return res.json(jsForecastFallback(req.body.records, Number(req.body.horizon))); }
+  } catch (error) { console.error('Python forecast failed; using validated Node fallback:', error.message); return res.json(jsForecastFallback(req.body.records, Number(req.body.horizon))); }
 });
-
-app.use((err, req, res, next) => {
-  if (err?.type === 'entity.too.large') return res.status(413).json({ ok: false, error: 'Request payload is too large.' });
-  if (err instanceof SyntaxError && 'body' in err) return res.status(400).json({ ok: false, error: 'Malformed JSON request.' });
-  console.error('Unhandled server error:', err?.message || err);
-  return res.status(500).json({ ok: false, error: 'Internal server error.' });
-});
-
-app.get('/health', (req, res) => res.json({ status: 'ok', service: 'textile-intelligence-platform', forecast_engine: 'python-with-node-fallback', python_candidates: PYTHON_BINS }));
+app.use((err, req, res, next) => { if (err?.type === 'entity.too.large') return res.status(413).json({ ok: false, error: 'Request payload is too large.' }); if (err instanceof SyntaxError && 'body' in err) return res.status(400).json({ ok: false, error: 'Malformed JSON request.' }); console.error('Unhandled server error:', err?.message || err); return res.status(500).json({ ok: false, error: 'Internal server error.' }); });
+app.get('/health', (req, res) => res.json({ status: 'ok', service: 'textile-intelligence-platform', forecast_engine: 'python-with-validated-node-fallback', python_candidates: PYTHON_BINS }));
 app.listen(PORT, '0.0.0.0', () => console.log(`Textile Intelligence Platform running on ${PORT}`));
