@@ -99,30 +99,32 @@ function runForecastProcess(input) {
       out = '';
       err = '';
       console.log(`Forecast process starting with ${bin}`);
-      child = spawn(bin, [join(__dirname, 'forecast.py')], {
+      const currentChild = spawn(bin, [join(__dirname, 'forecast.py')], {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, PYTHONUNBUFFERED: '1' }
       });
+      child = currentChild;
 
       timer = setTimeout(() => {
         console.error(`Forecast process timed out after ${FORECAST_TIMEOUT_MS}ms (${bin}).`);
-        child.kill('SIGKILL');
+        currentChild.kill('SIGKILL');
         finish(() => reject(new Error('Forecast engine timed out.')));
       }, FORECAST_TIMEOUT_MS);
 
-      child.stdout.on('data', chunk => {
+      currentChild.stdout.on('data', chunk => {
         out += chunk.toString();
         if (out.length > MAX_OUTPUT) {
-          child.kill('SIGKILL');
+          currentChild.kill('SIGKILL');
           finish(() => reject(new Error('Forecast engine produced excessive output.')));
         }
       });
-      child.stderr.on('data', chunk => {
+      currentChild.stderr.on('data', chunk => {
         err += chunk.toString();
         if (err.length > 16_000) err = err.slice(-16_000);
       });
-      child.on('error', error => {
-        if (!settled && binIndex < PYTHON_BINS.length - 1 && error.code === 'ENOENT') {
+      currentChild.on('error', error => {
+        if (currentChild !== child || settled) return;
+        if (binIndex < PYTHON_BINS.length - 1 && error.code === 'ENOENT') {
           console.error(`Forecast executable ${bin} not found; trying ${PYTHON_BINS[++binIndex]}.`);
           if (timer) clearTimeout(timer);
           start();
@@ -131,8 +133,10 @@ function runForecastProcess(input) {
         console.error('Forecast process error:', error.message);
         finish(() => reject(new Error('Forecast engine is unavailable.')));
       });
-      child.on('close', code => {
-        if (settled) return;
+      currentChild.on('close', code => {
+        // An ENOENT retry may already have started another child. Ignore the
+        // old child's close event so it cannot reject the new attempt.
+        if (currentChild !== child || settled) return;
         if (code !== 0) {
           console.error(`Forecast engine exited with code ${code} using ${bin}:`, err.trim());
           finish(() => reject(new Error(code === null ? 'Forecast engine was terminated.' : 'Forecast engine failed to execute.')));
@@ -140,8 +144,8 @@ function runForecastProcess(input) {
         }
         finish(() => resolve(out));
       });
-      child.stdin.on('error', e => console.error('Forecast stdin error:', e.message));
-      child.stdin.end(JSON.stringify(input));
+      currentChild.stdin.on('error', e => console.error('Forecast stdin error:', e.message));
+      currentChild.stdin.end(JSON.stringify(input));
     };
 
     start();
