@@ -1,136 +1,94 @@
 # Textile Intelligence Platform
 
-Production-oriented enterprise analytics foundation for textile manufacturing, yarn-price intelligence and market analysis.
+Focused enterprise application for textile yarn market intelligence and evidence-based price forecasting.
 
-## What is included
+## Application scope
 
-- **Executive Dashboard** — yarn record count, average/latest prices, market indication, trend and automated insights.
-- **Yarn Intelligence** — normalized State → District/Region → Centre/Region → Fiber → Yarn Category → Yarn Type → Count → Spinning → Blend → Yarn Name filters, historical table, monthly analytics and current market indications.
-- **Forecasting** — Adaptive Holt, Damped Trend, Linear Trend, Drift, Recent Mean and Seasonal Naive candidates with rolling backtesting. A current market report can be used only as a clearly labelled market anchor when a market is explicitly selected.
-- **Operations Control** — data contract and UI for employee/headcount, production, inventory and sales-vs-BOM metrics. No operational value is fabricated when an ERP/MES/WMS connector is absent.
-- **Analytics Studio** — source, fiber and product mix plus automated insights and CSV export.
-- **Data Quality** — missing-value, duplicate and lineage diagnostics.
-- **Report Center** — filtered CSV, JSON analytics snapshot and browser print/PDF workflow.
-- **Automated ingestion** — existing GitHub Actions scrapers for official yarn publications and separate market-report ingestion are preserved.
+The production UI intentionally focuses on **Yarn Intelligence + Forecasting**. Non-essential Executive Dashboard, Operations, Analytics, Data Quality, Reports and Methodology navigation pages were removed to keep the workflow decision-focused.
 
-## Architecture
+## Forecasting pipeline
 
-```text
-Browser
-  │
-  ├── index.html        Application shell / views
-  ├── styles.css        Enterprise responsive UI system
-  ├── app.js            Data loading, filters, analytics, exports, operations import
-  └── forecast.js       Forecast models + rolling backtest
-          │
-          ▼
-      Express server
-          │
-          ├── /api/yarn        data/yarn.json
-          ├── /api/live-yarn   data/live_yarn.json
-          ├── /api/operations  data/operations.json
-          └── /health
+The forecast service is Python-backed and exposed through `POST /api/forecast`.
 
-GitHub Actions
-  ├── official source ingestion → data/yarn.json
-  └── market report ingestion   → data/live_yarn.json
+1. **Data preprocessing** — parse dates/prices, remove invalid/non-positive prices and aggregate source observations to a regular monthly series.
+2. **Missing values** — only gaps between observed endpoints may be time-interpolated for models requiring a regular index; endpoints are never fabricated.
+3. **Feature engineering** — lag 1/2/3/6/12, rolling means and standard deviations over 3/6/12 months, month seasonality (sin/cos) and trend.
+4. **Candidate models** — SARIMAX, Holt Exponential Smoothing, Damped Trend, Seasonal Naive, Gradient Boosting with lag/rolling features, Ridge with lag/rolling features, Drift and Recent Mean.
+5. **Validation** — rolling-origin out-of-sample validation. MAPE is the primary ranking metric and RMSE is the tie-breaker. No random train/test split is used for time series.
+6. **Selection** — the lowest validated MAPE model is selected and retrained on the complete available history before producing the requested 3/6/12-month horizon.
 
-Optional future connectors
-  └── ERP / MES / WMS → normalized operations snapshot
-```
+The system does **not** promise an artificial 95%/99% accuracy. The displayed validation score is measured from historical holdouts. Future shocks cannot be known in advance.
 
-## Data governance
+### Textile-specific drivers
 
-The platform keeps **official source records** separate from **market indicators**. TXC, NTC and NHDC observations remain source-traceable. Public trade/news observations are classified as market indicators and are never silently inserted into the official historical series.
+For a production textile forecast, price should ideally be modelled with exogenous drivers in addition to historical yarn price. The data contract is designed to accept future monthly features such as:
 
-Missing observations are not copied forward or interpolated. If a selected series does not have enough verified monthly history, forecasting is withheld.
+- cotton lint / domestic cotton benchmark
+- ICE cotton or other relevant benchmark
+- USD/INR
+- crude / energy cost proxy
+- spinning power cost
+- yarn demand / order volume
+- inventory days / stock cover
+- export/import indicators
+- season/month effects
+- production capacity/utilisation
 
-NTC archive records may identify a Southern/Western **source region** rather than a state/district. The application therefore does not invent a state mapping.
+The current repository's official yarn history primarily contains yarn-price observations, so the engine does not invent these external drivers. When real aligned driver columns are added to the ETL dataset, the ML/SARIMAX pipeline can be extended to use them.
 
-## Operations data contract
+## Price basis governance
 
-`data/operations.json` is intentionally empty in the repository until a real operational source is connected. The browser also supports a session-only CSV import.
+Official historical observations and current public market-report indications are displayed separately. A current market range must not be silently inserted into official history. This avoids misleading jumps caused by differences in source, location, ex-mill/market basis, GST or specification.
 
-Recommended normalized fields:
+## Run locally
 
-- Employees: `employee_id,status,department,production_flag`
-- Production: `date,product,quantity,unit,line`
-- Inventory: `sku,category,inventory_quantity,unit,value`
-- Sales/BOM: `order_id,product,demand_qty,bom_stock_qty`
-
-For a production ERP integration, replace this snapshot with a scheduled ETL job that validates the source, normalizes units and writes only approved fields.
-
-## Local development
-
-Requirements: Node.js 20+ and Python 3.10+ for the ingestion scripts.
+Requirements: Node.js 20+, Python 3.10+.
 
 ```bash
 git clone https://github.com/Vignesh-S-V/textile-intelligence-platform.git
 cd textile-intelligence-platform
 npm install
-npm run dev
+pip install -r requirements.txt
+npm start
 ```
 
 Open `http://localhost:10000`.
 
-For production-style execution:
-
-```bash
-npm start
-```
-
 ## Deployment
 
-### Render
+For Render, install Python requirements during build and run the Node server:
 
-The repository already contains `render.yaml`. Use:
+```text
+Build: pip install -r requirements.txt && npm install
+Start: node server.js
+```
 
-- Build command: `npm install`
-- Start command: `npm start`
-- Environment: Node
-
-### Vercel
-
-The static application and `api/prices.js` can continue to be served by Vercel. Configure `DATA_GOV_API_KEY` as a Vercel environment variable if the government cotton API endpoint is used. Never commit the API key.
-
-The Express server is useful for Render/self-hosted deployments; Vercel serverless functions should be kept under `api/`.
-
-## Automated data refresh
-
-The existing `.github/workflows/` jobs can be run manually or on schedule. The ingestion scripts are responsible for downloading/parsing source publications and writing normalized JSON. Review generated diffs before promoting a source parser change.
+Set `PYTHON_BIN=python3` if required by the host.
 
 ## Main files
 
-| File | Responsibility |
-|---|---|
-| `index.html` | Application shell and enterprise views |
-| `styles.css` | Responsive design system |
-| `app.js` | Data layer, filtering, analytics, exports, operations import |
-| `forecast.js` | Time-series models and validation |
-| `server.js` | Render/self-hosted API server |
-| `api/prices.js` | Vercel government cotton API function |
-| `data/yarn.json` | Generated official yarn history |
-| `data/live_yarn.json` | Generated market-report indicators |
-| `data/operations.json` | Optional operational snapshot contract |
-| `scripts/` | Source ingestion and normalization |
-| `.github/workflows/` | Scheduled ingestion workflows |
+- `index.html` — focused yarn intelligence/forecast UI
+- `styles.css` — responsive enterprise design
+- `app.js` — API loading, cascading filters, market table, pagination and forecast request
+- `forecast.js` — chart rendering and model leaderboard UI
+- `forecast.py` — preprocessing, feature engineering, models and rolling validation
+- `server.js` — Express API and Python forecast bridge
+- `data/yarn.json` — normalized official yarn history
+- `data/live_yarn.json` — current public market indicators
+- `scripts/` — source ingestion jobs
+- `.github/workflows/` — automated ingestion and validation
 
-## Production hardening roadmap
+## Quality rules
 
-1. Connect ERP/MES/WMS through a server-side ETL/API layer; do not expose credentials in the browser.
-2. Add database persistence (PostgreSQL or an existing enterprise warehouse) for operational facts and dimensions.
-3. Add authentication/authorization and role-based navigation for executive, procurement, production and finance users.
-4. Add automated schema validation and anomaly tests to CI before data commits.
-5. Add observability for scraper failures, stale source dates and API latency.
-6. Add unit/integration tests for normalization, deduplication and forecasting backtests.
+- Never copy current price backward into history.
+- Never replace a missing source observation with a guessed quote.
+- Never claim model accuracy that has not been backtested.
+- Preserve source/location/specification lineage.
+- Prefer exact product identity and location filters before model fitting.
 
-## Official sources currently used by the platform
+## Current public source links
 
-- Textile Commissioner: https://www.txcindia.gov.in/html/ecomicsection/Cotton%20Yarn%20Prices.pdf
+- Textile Commissioner — Cotton Yarn Prices: https://www.txcindia.gov.in/html/ecomicsection/Cotton%20Yarn%20Prices.pdf
 - NTC Southern Region archive: https://www.ntcltd.org/SRO_oldRecords.aspx
 - NTC Western Region archive: https://www.ntcltd.org/WRO_oldRecords.aspx
-- NHDC yarn rates: https://nhdc.org.in/yarnrate.aspx
-
-## Important
-
-This platform is an analytics system, not a trading terminal. Current market-report values are indicators from published reports. Forecasts are statistical estimates and must be reviewed with procurement, production and commercial context before business decisions are made.
+- NHDC Yarn Rates: https://nhdc.org.in/yarnrate.aspx
