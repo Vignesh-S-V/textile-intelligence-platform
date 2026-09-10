@@ -1,7 +1,7 @@
 name: Validate application
 on:
   push:
-    branches: [main, qa-hardening-2026-09-10, fix/forecast-production-runtime]
+    branches: [main, qa-hardening-2026-09-10, fix/forecast-production-runtime, fix/forecast-runtime-fallback]
   pull_request:
     branches: [main]
 jobs:
@@ -37,6 +37,23 @@ jobs:
           print('FORECAST SMOKE TEST OK:', result['model'], result['monthly_points'], 'monthly points')
           with open('/tmp/forecast-payload.json', 'w', encoding='utf-8') as f:
               json.dump({'records': selected, 'horizon': 3}, f)
+          PY
+      - name: Short-history regression test
+        run: |
+          python - <<'PY'
+          import json, subprocess
+          from datetime import date
+          records = [
+              {'date': f'2025-{m:02d}-01', 'price_inr_kg': 100 + m * 1.5,
+               'fiber': 'Cotton', 'product': 'Cotton Yarn', 'yarn_type': 'Combed Yarn', 'count': '20s'}
+              for m in range(1, 13)
+          ]
+          p = subprocess.run(['python', 'forecast.py'], input=json.dumps({'records': records, 'horizon': 2}), text=True, capture_output=True, check=True)
+          result = json.loads(p.stdout)
+          assert result.get('ok') is True, result
+          assert result.get('monthly_points') == 12, result
+          assert len(result.get('forecast', [])) == 2, result
+          print('SHORT HISTORY TEST OK:', result['model'])
           PY
       - name: Start application
         run: nohup npm start >/tmp/textile-intelligence.log 2>&1 &
