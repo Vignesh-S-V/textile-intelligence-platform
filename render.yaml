@@ -3,7 +3,7 @@ services:
     name: textile-intelligence-platform
     runtime: node
     branch: main
-    buildCommand: npm install
+    buildCommand: npm install && python3 -m pip install -r requirements.txt
     startCommand: npm start
     autoDeploy: true
     healthCheckPath: /health
