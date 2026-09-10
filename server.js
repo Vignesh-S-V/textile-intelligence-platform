@@ -8,9 +8,10 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PORT = process.env.PORT || 10000;
-const PYTHON_BIN = process.env.PYTHON_BIN || 'python3';
+const PYTHON_BINS = [...new Set([process.env.PYTHON_BIN, 'python3', 'python'].filter(Boolean))];
 const FORECAST_WINDOW_MS = 60_000;
 const FORECAST_MAX_REQUESTS = 12;
+const FORECAST_TIMEOUT_MS = 120_000;
 const MAX_FORECAST_RECORDS = 2_000;
 const MAX_RECORD_STRING = 200;
 
@@ -76,6 +77,77 @@ function validateForecastPayload(body) {
   return null;
 }
 
+function runForecastProcess(input) {
+  return new Promise((resolve, reject) => {
+    let binIndex = 0;
+    let child = null;
+    let out = '';
+    let err = '';
+    let settled = false;
+    let timer = null;
+    const MAX_OUTPUT = 2 * 1024 * 1024;
+
+    const finish = (fn) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      fn();
+    };
+
+    const start = () => {
+      const bin = PYTHON_BINS[binIndex];
+      out = '';
+      err = '';
+      console.log(`Forecast process starting with ${bin}`);
+      child = spawn(bin, [join(__dirname, 'forecast.py')], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+      });
+
+      timer = setTimeout(() => {
+        console.error(`Forecast process timed out after ${FORECAST_TIMEOUT_MS}ms (${bin}).`);
+        child.kill('SIGKILL');
+        finish(() => reject(new Error('Forecast engine timed out.')));
+      }, FORECAST_TIMEOUT_MS);
+
+      child.stdout.on('data', chunk => {
+        out += chunk.toString();
+        if (out.length > MAX_OUTPUT) {
+          child.kill('SIGKILL');
+          finish(() => reject(new Error('Forecast engine produced excessive output.')));
+        }
+      });
+      child.stderr.on('data', chunk => {
+        err += chunk.toString();
+        if (err.length > 16_000) err = err.slice(-16_000);
+      });
+      child.on('error', error => {
+        if (!settled && binIndex < PYTHON_BINS.length - 1 && error.code === 'ENOENT') {
+          console.error(`Forecast executable ${bin} not found; trying ${PYTHON_BINS[++binIndex]}.`);
+          if (timer) clearTimeout(timer);
+          start();
+          return;
+        }
+        console.error('Forecast process error:', error.message);
+        finish(() => reject(new Error('Forecast engine is unavailable.')));
+      });
+      child.on('close', code => {
+        if (settled) return;
+        if (code !== 0) {
+          console.error(`Forecast engine exited with code ${code} using ${bin}:`, err.trim());
+          finish(() => reject(new Error(code === null ? 'Forecast engine was terminated.' : 'Forecast engine failed to execute.')));
+          return;
+        }
+        finish(() => resolve(out));
+      });
+      child.stdin.on('error', e => console.error('Forecast stdin error:', e.message));
+      child.stdin.end(JSON.stringify(input));
+    };
+
+    start();
+  });
+}
+
 app.get('/api/yarn', (req, res) => {
   try {
     const d = readJson('yarn.json'), r = d.records || [];
@@ -101,46 +173,19 @@ app.post('/api/forecast', forecastRateLimit, async (req, res) => {
   const validationError = validateForecastPayload(req.body);
   if (validationError) return res.status(400).json({ ok: false, error: validationError });
 
-  const child = spawn(PYTHON_BIN, [join(__dirname, 'forecast.py')], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, PYTHONUNBUFFERED: '1' }
-  });
-  let out = '';
-  let err = '';
-  let settled = false;
-  const MAX_OUTPUT = 2 * 1024 * 1024;
-  const finish = fn => {
-    if (!settled) { settled = true; fn(); }
-  };
-
-  child.stdout.on('data', chunk => {
-    out += chunk.toString();
-    if (out.length > MAX_OUTPUT) child.kill('SIGKILL');
-  });
-  child.stderr.on('data', chunk => {
-    err += chunk.toString();
-    if (err.length > 16_000) err = err.slice(-16_000);
-  });
-  child.on('error', error => {
-    console.error('Forecast process error:', error.message);
-    finish(() => res.status(500).json({ ok: false, error: 'Forecast engine is unavailable.' }));
-  });
-  child.on('close', code => {
-    if (code !== 0) {
-      console.error(`Forecast engine exited with code ${code}:`, err.trim());
-      return finish(() => res.status(500).json({ ok: false, error: 'Forecast engine failed to execute.' }));
-    }
+  try {
+    const out = await runForecastProcess({ records: req.body.records, horizon: Number(req.body.horizon) });
     try {
       const result = JSON.parse(out);
-      if (!result || result.ok !== true) return finish(() => res.status(422).json({ ok: false, error: 'Forecast could not be generated for the selected data.' }));
-      return finish(() => res.json(result));
+      if (!result || result.ok !== true) return res.status(422).json({ ok: false, error: result?.error || 'Forecast could not be generated for the selected data.' });
+      return res.json(result);
     } catch {
-      console.error('Forecast engine returned non-JSON output:', out.slice(0, 1000), err.trim());
-      return finish(() => res.status(500).json({ ok: false, error: 'Forecast engine returned invalid output.' }));
+      console.error('Forecast engine returned non-JSON output:', out.slice(0, 1000));
+      return res.status(500).json({ ok: false, error: 'Forecast engine returned invalid output.' });
     }
-  });
-  child.stdin.on('error', e => console.error('Forecast stdin error:', e.message));
-  child.stdin.end(JSON.stringify({ records: req.body.records, horizon: Number(req.body.horizon) }));
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
 });
 
 app.use((err, req, res, next) => {
@@ -150,5 +195,5 @@ app.use((err, req, res, next) => {
   return res.status(500).json({ ok: false, error: 'Internal server error.' });
 });
 
-app.get('/health', (req, res) => res.json({ status: 'ok', service: 'textile-intelligence-platform', forecast_engine: 'python' }));
+app.get('/health', (req, res) => res.json({ status: 'ok', service: 'textile-intelligence-platform', forecast_engine: 'python', python_candidates: PYTHON_BINS }));
 app.listen(PORT, '0.0.0.0', () => console.log(`Textile Intelligence Platform running on ${PORT}`));

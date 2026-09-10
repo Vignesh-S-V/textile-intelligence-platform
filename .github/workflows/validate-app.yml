@@ -1,7 +1,7 @@
 name: Validate application
 on:
   push:
-    branches: [main, qa-hardening-2026-09-10]
+    branches: [main, qa-hardening-2026-09-10, fix/forecast-production-runtime]
   pull_request:
     branches: [main]
 jobs:
@@ -35,6 +35,8 @@ jobs:
           assert len(result.get('forecast', [])) == 3, result
           assert all(isinstance(x.get('price'), (int, float)) and x['price'] > 0 for x in result['forecast']), result
           print('FORECAST SMOKE TEST OK:', result['model'], result['monthly_points'], 'monthly points')
+          with open('/tmp/forecast-payload.json', 'w', encoding='utf-8') as f:
+              json.dump({'records': selected, 'horizon': 3}, f)
           PY
       - name: Start application
         run: nohup npm start >/tmp/textile-intelligence.log 2>&1 &
@@ -43,6 +45,21 @@ jobs:
           for i in {1..30}; do curl -fsS http://127.0.0.1:10000/health && exit 0; sleep 2; done
           cat /tmp/textile-intelligence.log
           exit 1
+      - name: Forecast API integration test
+        run: |
+          curl --fail-with-body --silent --show-error \
+            -X POST http://127.0.0.1:10000/api/forecast \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/forecast-payload.json \
+            -o /tmp/forecast-response.json
+          python - <<'PY'
+          import json
+          with open('/tmp/forecast-response.json', encoding='utf-8') as f:
+              result = json.load(f)
+          assert result.get('ok') is True, result
+          assert len(result.get('forecast', [])) == 3, result
+          print('FORECAST HTTP API TEST OK:', result['model'])
+          PY
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Browser E2E forecast test
