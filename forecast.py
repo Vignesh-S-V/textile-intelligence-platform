@@ -94,7 +94,10 @@ def candidates():return {'SARIMAX':sarimax,'Holt Exponential Smoothing':holt,'Da
 
 def validate(y,fn,h):
     n=len(y)
-    # Allow exactly 12 monthly observations to produce at least one holdout fold.
+    # For short histories there may be no meaningful holdout fold. The caller
+    # will use robust fallback models instead of refusing to forecast.
+    if n < 11:
+        return None
     start=max(8,min(30,int(n*.55)))
     a=[];p=[]
     for end in range(start,n,3):
@@ -111,13 +114,32 @@ def validate(y,fn,h):
 
 def run(payload):
     h=max(1,min(12,int(payload.get('horizon',3))));y=monthly(clean(payload.get('records',[])))
-    if len(y)<12:return {'ok':False,'error':f'{len(y)} monthly observations; at least 12 required for model comparison.','monthly_points':len(y)}
+    # Forecast whenever at least one valid monthly observation exists. For
+    # very short histories, robust simple models are used because statistical
+    # model comparison is not meaningful with too few observations.
+    if len(y)<1:return {'ok':False,'error':'No valid monthly observations available for forecasting.','monthly_points':len(y)}
     model_map=candidates();board=[]
     for name,fn in model_map.items():
         score=validate(y,fn,h)
         if score:board.append({'model':name,**score})
-    if not board:return {'ok':False,'error':'No model passed rolling-origin validation.'}
-    board.sort(key=lambda z:(z['mape'],z['rmse']));pred=None;best=None
+
+    # No validation fold (typically <11 months): build a deterministic fallback
+    # leaderboard from models that can actually forecast the available history.
+    if not board:
+        fallback_order=['Recent Mean','Drift','Holt Exponential Smoothing','Damped Trend']
+        for rank,name in enumerate(fallback_order):
+            fn=model_map[name]
+            try:
+                trial=fn(y,h)
+                trial=np.asarray(trial,float) if trial is not None else None
+            except Exception:
+                trial=None
+            if trial is not None and len(trial)==h and np.all(np.isfinite(trial)):
+                board.append({'model':name,'mape':999.0,'rmse':999.0,'n':0,'fallback_rank':rank})
+
+    if not board:return {'ok':False,'error':'Forecast models could not generate a finite forecast.','monthly_points':len(y)}
+    board.sort(key=lambda z:(z['mape'],z['rmse'],z.get('fallback_rank',999)))
+    pred=None;best=None
     # A model can validate successfully yet fail on the full training set.
     # Try validated models in rank order instead of letting one failure abort the forecast.
     for candidate in board:
@@ -128,7 +150,7 @@ def run(payload):
             trial=None
         if trial is not None and len(trial)==h and np.all(np.isfinite(trial)):
             best=candidate;pred=trial;break
-    if best is None:return {'ok':False,'error':'Validated models could not generate a finite forecast.'}
+    if best is None:return {'ok':False,'error':'Forecast models could not generate a finite forecast.','monthly_points':len(y)}
     dates=[];d=y.date.iloc[-1]
     for _ in range(h):d=d+pd.offsets.MonthBegin(1);dates.append(d.strftime('%Y-%m'))
     return {'ok':True,'model':best['model'],'validation':best,'leaderboard':board,'history':[{'month':r.date.strftime('%Y-%m'),'price':float(r.y)} for r in y.itertuples()],'forecast':[{'month':m,'price':float(v)} for m,v in zip(dates,pred)],'latest_historical':float(y.y.iloc[-1]),'monthly_points':len(y)}
