@@ -1,6 +1,7 @@
 import json
 import re
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import requests
@@ -9,7 +10,7 @@ from bs4 import BeautifulSoup
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'data' / 'live_yarn.json'
 MIN_DATE = '2021-01-01'
-UA = 'Textile-Intelligence-Platform market-report bot/1.0'
+UA = 'Textile-Intelligence-Platform market-report bot/1.1'
 HEADERS = {'User-Agent': UA}
 
 SOURCES = [{'name': 'Textile Today', 'short': 'TEXTILE_TODAY', 'feed': 'https://www.textiletoday.com.bd/feed/?s=cotton%20yarn'}]
@@ -29,9 +30,14 @@ def get(url):
 
 def parse_date(text):
     text=clean(text)
-    for fmt in ('%Y-%m-%dT%H:%M:%S%z','%Y-%m-%dT%H:%M:%S','%Y-%m-%d','%B %d, %Y','%b %d, %Y','%d %B %Y'):
-        try: return datetime.strptime(text[:25],fmt).strftime('%Y-%m-%d')
-        except Exception: pass
+    if not text:return None
+    try:
+        dt=parsedate_to_datetime(text)
+        if dt:return dt.date().isoformat()
+    except Exception:pass
+    for fmt in ('%Y-%m-%dT%H:%M:%S%z','%Y-%m-%dT%H:%M:%S','%Y-%m-%d','%B %d, %Y','%b %d, %Y','%d %B %Y','%d %b %Y'):
+        try:return datetime.strptime(text[:35],fmt).strftime('%Y-%m-%d')
+        except Exception:pass
     m=re.search(r'(20\d{2})[-/](\d{1,2})[-/](\d{1,2})',text)
     return f'{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}' if m else None
 
@@ -45,45 +51,41 @@ def parse_article(url,source_short,source_name,published_hint=None):
     if 'yarn' not in (title+' '+text).lower() or 'cotton yarn' not in text.lower(): return []
     date=parse_date(published_hint or '')
     if not date:
-        for selector in ('meta[property="article:published_time"]','meta[name="date"]','time'):
+        for selector in ('meta[property="article:published_time"]','meta[name="date"]','meta[itemprop="datePublished"]','time'):
             node=soup.select_one(selector)
             if node:
                 date=parse_date(node.get('content') or node.get('datetime') or node.get_text(' ',strip=True))
                 if date: break
-    if not date:
-        m=re.search(r'(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+20\d{2}',text); date=parse_date(m.group(0)) if m else None
     if not date:return []
     rows=[]; range_spans=[]
     for m in PRICE_RANGE_RE.finditer(text):
-        range_spans.append((m.start(),m.end()))
-        window=text[max(0,m.start()-180):min(len(text),m.end()+180)]; count_m=COUNT_RE.search(window)
-        if not count_m:continue
+        range_spans.append((m.start(),m.end())); window=text[max(0,m.start()-220):min(len(text),m.end()+220)]; count_m=COUNT_RE.search(window)
+        if not count_m or re.search(r'per\s*(?:4\.5|5)\s*kg',window,re.I):continue
         pmin,pmax=num(m.group(1)),num(m.group(2))
         if pmin is None or pmax is None:continue
-        descriptor=clean(text[max(0,m.start()-100):m.start()][-100:]+' '+text[m.end():m.end()+100])
-        yarn_type='Combed Yarn' if re.search(r'combed',descriptor,re.I) else ('Carded Yarn' if re.search(r'carded',descriptor,re.I) else 'Cotton Yarn')
-        market='Tiruppur' if re.search(r'tiruppur',window,re.I) else ('Mumbai' if re.search(r'mumbai',window,re.I) else 'India')
-        add(rows,date=date,market=market,location=market,fiber='Cotton',yarn_type=yarn_type,spinning='Not specified by source',count=count_m.group(1)+'s',blend='100% Cotton',product='Cotton Yarn',price_min_inr_kg=pmin,price_max_inr_kg=pmax,gst_included=False,quote_type='market_report_indication',source=source_name,source_short=source_short,source_url=url,source_note=title)
+        descriptor=clean(window); yarn_type='Combed Yarn' if re.search(r'combed',descriptor,re.I) else ('Carded Yarn' if re.search(r'carded',descriptor,re.I) else 'Cotton Yarn'); market='Tiruppur' if re.search(r'tiruppur',window,re.I) else ('Mumbai' if re.search(r'mumbai',window,re.I) else 'India')
+        add(rows,date=date,market=market,location=market,fiber='Cotton',yarn_type=yarn_type,spinning='Not specified by source',count=count_m.group(1)+'s',blend='100% Cotton',product='Cotton Yarn',price_min_inr_kg=pmin,price_max_inr_kg=pmax,gst_included=False if 'gst extra' in descriptor.lower() else None,quote_type='market_report_indication',source=source_name,source_short=source_short,source_url=url,source_note=title)
     for m in PRICE_SINGLE_RE.finditer(text):
         if any(start<=m.start()<end for start,end in range_spans):continue
-        window=text[max(0,m.start()-180):min(len(text),m.end()+180)]
-        if re.search(r'(?:per\s*5\s*kg|per\s*4\.5\s*kg)',window,re.I):continue
+        window=text[max(0,m.start()-220):min(len(text),m.end()+220)]
+        if re.search(r'per\s*(?:4\.5|5)\s*kg',window,re.I):continue
         count_m=COUNT_RE.search(window); p=num(m.group(1))
         if not count_m or p is None:continue
-        yarn_type='Combed Yarn' if re.search(r'combed',window,re.I) else ('Carded Yarn' if re.search(r'carded',window,re.I) else 'Cotton Yarn')
-        market='Tiruppur' if re.search(r'tiruppur',window,re.I) else ('Mumbai' if re.search(r'mumbai',window,re.I) else 'India')
-        add(rows,date=date,market=market,location=market,fiber='Cotton',yarn_type=yarn_type,spinning='Not specified by source',count=count_m.group(1)+'s',blend='100% Cotton',product='Cotton Yarn',price_min_inr_kg=p,price_max_inr_kg=p,gst_included=None,quote_type='market_report_indication',source=source_name,source_short=source_short,source_url=url,source_note=title)
+        descriptor=clean(window); yarn_type='Combed Yarn' if re.search(r'combed',descriptor,re.I) else ('Carded Yarn' if re.search(r'carded',descriptor,re.I) else 'Cotton Yarn'); market='Tiruppur' if re.search(r'tiruppur',window,re.I) else ('Mumbai' if re.search(r'mumbai',window,re.I) else 'India')
+        add(rows,date=date,market=market,location=market,fiber='Cotton',yarn_type=yarn_type,spinning='Not specified by source',count=count_m.group(1)+'s',blend='100% Cotton',product='Cotton Yarn',price_min_inr_kg=p,price_max_inr_kg=p,gst_included=False if 'gst extra' in descriptor.lower() else None,quote_type='market_report_indication',source=source_name,source_short=source_short,source_url=url,source_note=title)
     return rows
 
 def textile_today():
     rows=[]
     for source in SOURCES:
         try:
-            xml=get(source['feed']).decode('utf-8','ignore'); soup=BeautifulSoup(xml,'xml')
-            for item in soup.find_all('item')[:30]:
+            xml=get(source['feed']).decode('utf-8','ignore'); soup=BeautifulSoup(xml,'xml'); items=soup.find_all('item'); print('Textile Today feed items:',len(items))
+            for item in items[:50]:
                 link=clean(item.link.get_text()) if item.link else ''; title=clean(item.title.get_text(' ',strip=True) if item.title else ''); pub=clean(item.pubDate.get_text(' ',strip=True) if item.pubDate else '')
                 if not link or 'yarn' not in (title+' '+link).lower():continue
-                try:rows.extend(parse_article(link,source['short'],source['name'],pub))
+                try:
+                    parsed=parse_article(link,source['short'],source['name'],pub); rows.extend(parsed)
+                    if parsed:print('Parsed:',len(parsed),title,pub)
                 except Exception as e:print('Article failed:',link,e)
         except Exception as e:print('Feed failed:',source['feed'],e)
     return rows
