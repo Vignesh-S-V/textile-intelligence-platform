@@ -36,3 +36,17 @@ jobs:
           assert all(isinstance(x.get('price'), (int, float)) and x['price'] > 0 for x in result['forecast']), result
           print('FORECAST SMOKE TEST OK:', result['model'], result['monthly_points'], 'monthly points')
           PY
+      - name: Start application
+        run: nohup npm start >/tmp/textile-intelligence.log 2>&1 &
+      - name: Wait for health endpoint
+        run: |
+          for i in {1..30}; do curl -fsS http://127.0.0.1:10000/health && exit 0; sleep 2; done
+          cat /tmp/textile-intelligence.log
+          exit 1
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser E2E forecast test
+        run: npm run e2e
+      - name: Show application log on failure
+        if: failure()
+        run: cat /tmp/textile-intelligence.log
